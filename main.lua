@@ -1,7 +1,7 @@
 -- ============================================================
 -- 🎃 GHOST HUB v5.0 — Halloween Edition
 -- Repo:     https://github.com/zovlane/GhostHub
--- WindUI:   https://github.com/zovlane/WindUI (our fork)
+-- WindUI:   https://github.com/zovlane/WindUI (our fork — loads dist/main.lua)
 -- Load:     loadstring(game:HttpGet("https://raw.githubusercontent.com/zovlane/GhostHub/main/main.lua"))()
 -- ============================================================
 local TweenService      = game:GetService("TweenService")
@@ -96,7 +96,7 @@ end
 -- ============================================================
 -- LOADING WINDUI
 -- ============================================================
-local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/zovlane/WindUI/main/main.lua"))()
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/zovlane/WindUI/main/dist/main.lua"))()
 
 -- ============================================================
 -- MODULES (Vision Hub pattern, exact)
