@@ -584,7 +584,7 @@ end
 workspace.DescendantAdded:Connect(function(desc)
     if desc.Name == "GunDrop" and desc:IsA("BasePart") then
         pcall(function()
-            WindUI:Notify({ Title="Gun Dropped!", Content="A gun appeared on the map!", Icon="alert-circle", Duration=4 })
+            WindUI:Notify({ Title="Gun Dropped!", Content="A gun appeared on the map!", Icon="circle-alert", Duration=4 })
         end)
     end
 end)
@@ -691,7 +691,7 @@ function Modules.ShootMurdererSilent()
     WindUI:Notify({
         Title   = "Silent Aim",
         Content = _silentAimEnabled and "Enabled — shots redirect to murderer!" or "Disabled",
-        Icon    = _silentAimEnabled and "crosshair" or "x-circle",
+        Icon    = _silentAimEnabled and "crosshair" or "circle-x",
         Duration = 2,
     })
 end
@@ -2435,7 +2435,7 @@ local function openFlyGui()
     local ok, err = pcall(function()
         loadstring(game:HttpGet("https://raw.githubusercontent.com/XNEOFF/FlyGuiV3/main/FlyGuiV3.txt"))()
     end)
-    if not ok then notify("Fly GUI failed", tostring(err), "x-circle", 4) end
+    if not ok then notify("Fly GUI failed", tostring(err), "circle-x", 4) end
 end
 
 -- ── Inventory value ──
@@ -2492,6 +2492,340 @@ local function inventoryReport(playerName)
 end
 
 -- ============================================================
+-- TRADE HELPER (values from pastefy / USD) + ITEM SPAWNER (visual only)
+-- ============================================================
+local ItemDB = {}
+pcall(function() ItemDB = require(ReplicatedStorage.Database.Sync.Item) end)
+
+local SupremeList  = {}
+local SupremeVals  = {}   -- item id -> supreme value
+local UsdVals      = {}   -- item id -> usd price
+local TradeValues  = SupremeVals
+
+local function lookupSupreme(itemName, rarity, isChroma, itemType, year)
+    if not itemName or itemName == "" then return nil end
+    local bucketName = rarity or ""
+    if isChroma then bucketName = "Chroma" end
+    if bucketName == "Classic" then bucketName = "Vintage" end
+    local bucket = SupremeList[bucketName]
+    if type(bucket) ~= "table" then return nil end
+    local v = itemName:lower()
+    if isChroma then v = "chroma " .. v end
+    if bucket[v] then return bucket[v] end
+    if bucketName == "Pet" then
+        local spaced = v:gsub("(%u)", " %1"):lower():gsub("^%s+", "")
+        if spaced ~= v and bucket[spaced] then return bucket[spaced] end
+        local squashed = v:gsub("%s+", "")
+        for key, val in pairs(bucket) do
+            if key:gsub("%s+", "") == squashed then return val end
+        end
+        return nil
+    end
+    local t = (itemType or ""):lower()
+    local y = tostring(year or "")
+    local tries = {v.." ("..t..")", v.." "..t}
+    if y ~= "" then
+        table.insert(tries, v.." ("..y..")")
+        table.insert(tries, v.." "..y)
+        table.insert(tries, v.." "..t.." ("..y..")")
+        table.insert(tries, v.." ("..t..") ("..y..")")
+        table.insert(tries, v.." ("..y..") ("..t..")")
+    end
+    for _, k in ipairs(tries) do
+        if bucket[k] then return bucket[k] end
+    end
+    local clean = v:gsub(" %([^%)]+%)$", "")
+    for key, val in pairs(bucket) do
+        if key:gsub(" %([^%)]+%)$", "") == clean then return val end
+    end
+    return nil
+end
+local function rebuildSupremeValues()
+    table.clear(SupremeVals)
+    for id, item in pairs(ItemDB) do
+        if type(item) == "table" and item.Rarity and item.Rarity ~= "" and item.ItemName and item.ItemName ~= "" then
+            local isChroma = item.Chroma == true or tostring(id):find("Chroma", 1, true) ~= nil
+            local val = lookupSupreme(item.ItemName, item.Rarity, isChroma, item.ItemType, item.Year)
+            if val then SupremeVals[id] = val end
+        end
+    end
+end
+task.spawn(function()
+    for _, url in ipairs({"https://pastefy.app/3Jpf5myz/raw", "https://www.astatine.vip/scripts/mm2_value.lua"}) do
+        local ok, res = pcall(function() return loadstring(game:HttpGet(url, true))() end)
+        if ok and type(res) == "table" and next(res) then
+            SupremeList = res
+            break
+        end
+    end
+    rebuildSupremeValues()
+end)
+task.spawn(function()
+    for _, v in pairs(getValueList()) do
+        if type(v) == "table" and v.name then UsdVals[v.name] = tonumber(v.price) or 0 end
+    end
+end)
+
+local TH = {
+    ShowValues = false, AutoOffer = false, MinProfit = 6, Mode = "Supreme",
+    Gui = nil, MyTitle = nil, TheirTitle = nil, MyOffer = nil, TheirOffer = nil,
+    MyTotal = 0, TheirTotal = 0, MyInventory = {}, Busy = false,
+}
+local TradeRemotes = ReplicatedStorage:FindFirstChild("Trade")
+
+local function setPriceMode(mode)
+    TH.Mode = mode
+    TradeValues = mode == "USD" and UsdVals or SupremeVals
+end
+local function valueOf(id) return TradeValues[id] or 0 end
+local function offerTotal(offer)
+    local total = 0
+    for _, e in pairs(offer or {}) do
+        total += valueOf(e[1]) * (tonumber(e[2]) or 1)
+    end
+    return total
+end
+local function getTradeFrame()
+    local mg = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
+    local lobby = mg and mg:FindFirstChild("Lobby")
+    local phone = lobby and lobby:FindFirstChild("LeaderBar") ~= nil
+    local name = phone and "TradeGUI_Phone" or "TradeGUI"
+    local g = LocalPlayer.PlayerGui:FindFirstChild(name) or LocalPlayer.PlayerGui:WaitForChild(name, 5)
+    local c = g and g:FindFirstChild("Container")
+    return c and c:FindFirstChild("Trade")
+end
+local function setValueLabel(container, text)
+    local old = container:FindFirstChild("Value")
+    if old then old:Destroy() end
+    local l = Instance.new("TextLabel")
+    l.Name = "Value"
+    l.Size = UDim2.new(1, 0, 0.3, 0)
+    l.TextScaled = true
+    l.TextWrapped = true
+    l.TextStrokeTransparency = 0.7
+    l.ZIndex = 10
+    l.BackgroundTransparency = 1
+    l.TextColor3 = Color3.fromRGB(255, 255, 255)
+    l.Text = text
+    l.Parent = container
+end
+local function eachOfferSlot(side, offer, fn)
+    local f = TH.Gui
+    local cont = f and f:FindFirstChild(side) and f[side]:FindFirstChild("Container")
+    if not cont then return end
+    for i, e in pairs(offer or {}) do
+        local slot = cont:FindFirstChild("NewItem" .. i)
+        local c = slot and slot:FindFirstChild("Container")
+        if c then fn(c, e) end
+    end
+end
+local function drawTradeValues()
+    if not TH.Gui then return end
+    eachOfferSlot("TheirOffer", TH.TheirOffer, function(c, e)
+        setValueLabel(c, "Value: " .. valueOf(e[1]) * (tonumber(e[2]) or 1))
+    end)
+    eachOfferSlot("YourOffer", TH.MyOffer, function(c, e)
+        setValueLabel(c, "Value: " .. valueOf(e[1]) * (tonumber(e[2]) or 1))
+        local amt = c:FindFirstChild("Amount")
+        if amt then amt.Position = UDim2.new(0.23, -4, 0.76, 0) end
+    end)
+    if TH.MyTitle then TH.MyTitle.Text = "YOUR OFFER | TOTAL: " .. TH.MyTotal end
+    if TH.TheirTitle then TH.TheirTitle.Text = "THEIR OFFER | TOTAL: " .. TH.TheirTotal end
+end
+local function clearTradeValues()
+    pcall(function() TH.Gui = getTradeFrame() end)
+    if not TH.Gui then return end
+    for _, side in ipairs({"TheirOffer", "YourOffer"}) do
+        local cont = TH.Gui:FindFirstChild(side) and TH.Gui[side]:FindFirstChild("Container")
+        if cont then
+            for _, slot in ipairs(cont:GetChildren()) do
+                local c = slot:IsA("Frame") and slot:FindFirstChild("Container")
+                local v = c and c:FindFirstChild("Value")
+                if v then v:Destroy() end
+            end
+        end
+    end
+    if TH.MyTitle then TH.MyTitle.Text = "YOUR OFFER" end
+    if TH.TheirTitle then TH.TheirTitle.Text = "THEIR OFFER" end
+end
+local function valuableInventory()
+    local inv = {}
+    local ok, owned = pcall(function()
+        return ReplicatedStorage.Remotes.Extras.GetFullInventory:InvokeServer(LocalPlayer.Name).Weapons.Owned
+    end)
+    if not ok or type(owned) ~= "table" then return inv end
+    for id, qty in pairs(owned) do
+        local v = valueOf(id)
+        if v > 0 then inv[id] = {value = v, quantity = tonumber(qty) or 1} end
+    end
+    return inv
+end
+-- best set of up to 4 of your items whose total stays under their total minus the profit margin
+local function pickOffer(theirTotal, inventory, profitPct)
+    if not theirTotal or theirTotal <= 0 then return {}, 0 end
+    local cap = theirTotal * (1 - profitPct / 100)
+    local pool = {}
+    for id, info in pairs(inventory) do
+        for _ = 1, info.quantity do table.insert(pool, {name = id, value = info.value}) end
+    end
+    table.sort(pool, function(a, b) return a.value > b.value end)
+    local maxItems = 4
+    local dp = {}
+    for i = 0, #pool do
+        dp[i] = {}
+        for k = 0, maxItems do dp[i][k] = 0 end
+    end
+    for i = 1, #pool do
+        for k = 0, maxItems do
+            dp[i][k] = dp[i - 1][k]
+            if k > 0 and dp[i - 1][k - 1] + pool[i].value <= cap then
+                dp[i][k] = math.max(dp[i][k], dp[i - 1][k - 1] + pool[i].value)
+            end
+        end
+    end
+    local chosen, k = {}, maxItems
+    for i = #pool, 1, -1 do
+        if k > 0 and dp[i][k] ~= dp[i - 1][k] then
+            table.insert(chosen, pool[i].name)
+            k -= 1
+        end
+    end
+    return chosen, dp[#pool][maxItems]
+end
+local function tradeOfferItem(id)
+    pcall(function() TradeRemotes.OfferItem:FireServer(id, "Weapons") end)
+end
+local function tradeRemoveItem(id)
+    pcall(function() TradeRemotes.RemoveOffer:FireServer(id, "Weapons") end)
+end
+local function clearMyOffer()
+    for _, e in pairs(TH.MyOffer or {}) do
+        for _ = 1, tonumber(e[2]) or 1 do tradeRemoveItem(e[1]) end
+    end
+end
+local function generateOffer()
+    if not TH.TheirOffer then
+        notify("Trade Helper", "Open a trade first.", "alert-triangle", 3)
+        return
+    end
+    if #TH.TheirOffer == 0 then
+        clearMyOffer()
+        return
+    end
+    local chosen, total = pickOffer(TH.TheirTotal, TH.MyInventory, TH.MinProfit)
+    if total ~= TH.MyTotal then
+        TH.Busy = true
+        clearMyOffer()
+        for _, id in ipairs(chosen) do tradeOfferItem(id) end
+        task.delay(0.6, function() TH.Busy = false end)
+    end
+end
+local function readTradeState(data)
+    if type(data) ~= "table" then return false end
+    local me, them
+    if data.Player1 and data.Player1.Player == LocalPlayer then
+        me, them = data.Player1, data.Player2
+    elseif data.Player2 and data.Player2.Player == LocalPlayer then
+        me, them = data.Player2, data.Player1
+    end
+    if not me or not them then return false end
+    TH.MyOffer, TH.TheirOffer = me.Offer, them.Offer
+    pcall(function() TH.Gui = getTradeFrame() end)
+    if not TH.Gui then return false end
+    TH.MyTitle = TH.Gui.YourOffer.Title
+    TH.TheirTitle = TH.Gui.TheirOffer.Title
+    TH.MyTotal = offerTotal(TH.MyOffer)
+    TH.TheirTotal = offerTotal(TH.TheirOffer)
+    return true
+end
+if TradeRemotes then
+    AddConnection(TradeRemotes.StartTrade.OnClientEvent:Connect(function()
+        pcall(function() TH.Gui = getTradeFrame() end)
+        if TH.Gui then
+            TH.MyTitle = TH.Gui.YourOffer.Title
+            TH.TheirTitle = TH.Gui.TheirOffer.Title
+            if TH.ShowValues then
+                TH.MyTitle.Text = "YOUR OFFER | TOTAL: 0"
+                TH.TheirTitle.Text = "THEIR OFFER | TOTAL: 0"
+            end
+        end
+        task.spawn(function() TH.MyInventory = valuableInventory() end)
+    end))
+    AddConnection(TradeRemotes.UpdateTrade.OnClientEvent:Connect(function(data)
+        if not readTradeState(data) then return end
+        if TH.ShowValues then pcall(drawTradeValues) end
+        if TH.AutoOffer and not TH.Busy then pcall(generateOffer) end
+    end))
+    AddConnection(TradeRemotes.AcceptTrade.OnClientEvent:Connect(function()
+        if TH.AutoOffer and not TH.Busy then pcall(generateOffer) end
+    end))
+    AddConnection(TradeRemotes.EndTrade.OnClientEvent:Connect(function()
+        TH.MyOffer, TH.TheirOffer = nil, nil
+        TH.MyTotal, TH.TheirTotal = 0, 0
+    end))
+end
+
+-- ── Item spawner (client-side only: nobody else sees these, gone on rejoin) ──
+local InvRemotes = ReplicatedStorage.Remotes:FindFirstChild("Inventory")
+local ChangeInventoryItem = InvRemotes and InvRemotes:FindFirstChild("ChangeInventoryItem")
+local ItemGift = ReplicatedStorage:FindFirstChild("ItemGift")
+local BoxModule = nil
+pcall(function() BoxModule = require(ReplicatedStorage.Modules.BoxModule) end)
+local localCounts = {}
+pcall(function()
+    for k, v in pairs(require(ReplicatedStorage.Modules.ProfileData).Weapons.Owned) do localCounts[k] = v end
+end)
+
+local RARITY_ORDER = {Unique=1, Ancient=2, Godly=3, Classic=4, Vintage=5, Legendary=6}
+local SpawnLabels, SpawnIdByLabel = {}, {}
+do
+    local rows = {}
+    for id, item in pairs(ItemDB) do
+        if type(item) == "table" and RARITY_ORDER[item.Rarity]
+            and (item.ItemType == nil or item.ItemType == "Knife" or item.ItemType == "Gun") then
+            table.insert(rows, {id = id, name = item.ItemName or tostring(id), rarity = item.Rarity})
+        end
+    end
+    table.sort(rows, function(a, b)
+        if RARITY_ORDER[a.rarity] ~= RARITY_ORDER[b.rarity] then return RARITY_ORDER[a.rarity] < RARITY_ORDER[b.rarity] end
+        return a.name:lower() < b.name:lower()
+    end)
+    for _, r in ipairs(rows) do
+        local label = string.format("%s [%s]", r.name, r.rarity == "Classic" and "Vintage" or r.rarity)
+        if SpawnIdByLabel[label] then label = label .. " " .. tostring(r.id) end
+        SpawnIdByLabel[label] = r.id
+        table.insert(SpawnLabels, label)
+    end
+end
+
+local function spawnItem(id, amount)
+    if not firesignal or not ChangeInventoryItem then
+        notify("Spawner", "Your executor does not support firesignal.", "circle-x", 4)
+        return false
+    end
+    local newCount = (localCounts[id] or 0) + amount
+    localCounts[id] = newCount
+    pcall(function() firesignal(ChangeInventoryItem.OnClientEvent, "Weapons", id, newCount) end)
+    if ItemGift then
+        pcall(function() firesignal(ItemGift.OnClientEvent, id, "Weapons", amount) end)
+    end
+    return true
+end
+local function randomBoxName()
+    local ok, boxes = pcall(function() return require(ReplicatedStorage.Database.Sync.MysteryBox) end)
+    if not ok or type(boxes) ~= "table" then return nil end
+    local names = {}
+    for k in pairs(boxes) do table.insert(names, k) end
+    return #names > 0 and names[math.random(1, #names)] or nil
+end
+local function openCrateVisual(id)
+    if BoxModule then
+        pcall(function() BoxModule.OpenBox(randomBoxName(), id) end)
+    end
+    spawnItem(id, 1)
+end
+
+-- ============================================================
 -- TABS (our sidebar Section system + Vision Hub tab content)
 -- ============================================================
 
@@ -2516,6 +2850,8 @@ HomeTab:Paragraph({
 + Unlock all emotes, emote spam, shuffle weapons
 + Auto open crates (real crate list), auto prestige, server hop when empty
 + Inventory value analyzer
++ Trade Helper: item values + totals in trades (Supreme or USD), auto offer with min profit
++ Item Spawner: visual-only items and crate animations to troll friends
 + Keybinds are all off until you set them in Settings
 + Mobile open button, window fits your screen
     ]]
@@ -2838,7 +3174,7 @@ TrollFling:Button({Title="Fling Hero", Icon="star",
     end})
 
 local TrollEmotes = TrollTab:Section({Title="Emotes", Opened=true})
-TrollEmotes:Button({Title="Unlock All Emotes", Desc="Adds a Free Emotes page to your emote menu", Icon="unlock",
+TrollEmotes:Button({Title="Unlock All Emotes", Desc="Adds a Free Emotes page to your emote menu", Icon="lock-open",
     Callback=unlockAllEmotes})
 TrollEmotes:Dropdown({Title="Select Emote", Desc="Choose emote", Flag="EmoteDropdown",
     Values=EMOTES, Value=AF.Emotes.Selected,
@@ -3060,6 +3396,93 @@ InvSub:Button({Title="Copy Report", Icon="copy",
 local ToolsSub = MiscTab:Section({Title="Tools", Opened=true})
 ToolsSub:Button({Title="Fly GUI", Desc="Loads Fly GUI V3", Icon="plane", Callback=openFlyGui})
 
+-- ── TRADING SECTION ────────────────────────────────────────
+local TradingSection = Window:Section({Title="Trading", Opened=true})
+
+local TradeTab = TradingSection:Tab({Title="Trade Helper", Icon="repeat-2"})
+local TradeInfo = TradeTab:Section({Title="Trade Values", Opened=true})
+TradeInfo:Paragraph({Title="Trade Helper",
+    Desc="Shows the value of every item in a trade and both totals. Supreme values come from the value list, USD from the Project Reverse price list."})
+TradeInfo:Dropdown({Title="Price Display", Flag="TradePriceMode",
+    Values={"Supreme","USD"}, Value="Supreme",
+    Callback=function(v)
+        setPriceMode(v)
+        if TH.ShowValues and TH.MyOffer then
+            TH.MyTotal, TH.TheirTotal = offerTotal(TH.MyOffer), offerTotal(TH.TheirOffer)
+            pcall(drawTradeValues)
+        end
+    end})
+TradeInfo:Toggle({Title="Show Values In Trade", Desc="Value under each item + totals in the titles", Flag="TradeShowValues",
+    Callback=function(v)
+        TH.ShowValues = v
+        if v then pcall(drawTradeValues) else pcall(clearTradeValues) end
+    end})
+
+local TradeAuto = TradeTab:Section({Title="Auto Offer", Opened=true})
+TradeAuto:Paragraph({Title="How it works",
+    Desc="Picks up to 4 of your items so your side is worth less than theirs by at least the profit %. It changes your offer by itself, so try it on an alt first."})
+TradeAuto:Toggle({Title="Automatically Generate Offers", Desc="Re-picks your items every time their offer changes", Flag="TradeAutoOffer",
+    Callback=function(v)
+        TH.AutoOffer = v
+        if v then task.spawn(function() TH.MyInventory = valuableInventory() end) end
+    end})
+TradeAuto:Button({Title="Generate Offer", Icon="wand-sparkles",
+    Callback=function()
+        task.spawn(function()
+            if next(TH.MyInventory) == nil then TH.MyInventory = valuableInventory() end
+            pcall(generateOffer)
+        end)
+    end})
+TradeAuto:Button({Title="Clear My Offer", Icon="trash-2",
+    Callback=function() pcall(clearMyOffer) end})
+TradeAuto:Slider({Title="Minimum Profit", Desc="Percent", Flag="TradeMinProfit",
+    Value={Min=0, Max=100, Default=6},
+    Callback=function(v) TH.MinProfit = v end})
+
+local SpawnerTab = TradingSection:Tab({Title="Item Spawner", Icon="sparkles"})
+local SpawnSub = SpawnerTab:Section({Title="Spawner", Opened=true})
+SpawnSub:Paragraph({Title="Visual only",
+    Desc="Spawned items only show on your screen. Nobody else can see them, they can't be traded, and they disappear when you rejoin."})
+local spawnSelection, spawnAmount = {}, 1
+SpawnSub:Dropdown({Title="Items", Desc="Search and pick one or more", Flag="SpawnItems",
+    Values=SpawnLabels, Value={}, Multi=true, AllowNone=true, SearchBarEnabled=true, MenuWidth=260,
+    Callback=function(v)
+        if type(v) ~= "table" then v = {v} end
+        spawnSelection = v
+    end})
+SpawnSub:Slider({Title="Amount", Desc="Per selected item", Flag="SpawnAmount",
+    Value={Min=1, Max=100, Default=1},
+    Callback=function(v) spawnAmount = v end})
+SpawnSub:Button({Title="Spawn Selected", Icon="plus-circle",
+    Callback=function()
+        if #spawnSelection == 0 then
+            notify("Nothing selected", "Pick at least one item first.", "alert-triangle", 3)
+            return
+        end
+        local n = 0
+        for _, label in ipairs(spawnSelection) do
+            local id = SpawnIdByLabel[label]
+            if id and spawnItem(id, spawnAmount) then n += 1 end
+        end
+        if n > 0 then
+            notify("Spawned", string.format("%d item(s) x %d each", n, spawnAmount), "check-circle", 3)
+        end
+    end})
+SpawnSub:Button({Title="Open In Crate", Desc="Plays the crate opening animation for each selected item", Icon="package-open",
+    Callback=function()
+        if #spawnSelection == 0 then
+            notify("Nothing selected", "Pick at least one item first.", "alert-triangle", 3)
+            return
+        end
+        task.spawn(function()
+            for _, label in ipairs(spawnSelection) do
+                local id = SpawnIdByLabel[label]
+                if id then openCrateVisual(id) end
+                task.wait(0.05)
+            end
+        end)
+    end})
+
 -- ── BUTTONS TAB (Vision Hub exact — standalone) ────────────
 local ButtonsTab = Window:Tab({Title="Buttons", Icon="square-mouse-pointer"})
 local BtnSub = ButtonsTab:Section({Title="Mobile Buttons", Subtitle="Customize your action buttons",
@@ -3103,7 +3526,7 @@ BtnSub:Toggle({Title="Show Kill Button", Desc="Adds Kill All button (Murderer on
                 local bp   = LocalPlayer.Backpack
                 local hasKnife = char and (char:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife")))
                 if not hasKnife then
-                    WindUI:Notify({Title="Kill All", Content="You need a knife (be Murderer)!", Icon="x-circle", Duration=3})
+                    WindUI:Notify({Title="Kill All", Content="You need a knife (be Murderer)!", Icon="circle-x", Duration=3})
                     return
                 end
                 Modules.KillAll()
