@@ -1,7 +1,7 @@
--- ============================================================
--- 🎃 GHOST HUB v5.0 — Halloween Edition
+﻿-- ============================================================
+-- ðŸŽƒ GHOST HUB v5.0 â€” Halloween Edition
 -- Repo:     https://github.com/zovlane/GhostHub
--- WindUI:   https://github.com/zovlane/WindUI (our fork — loads dist/main.lua)
+-- WindUI:   https://github.com/zovlane/WindUI (our fork â€” loads dist/main.lua)
 -- Load:     loadstring(game:HttpGet("https://raw.githubusercontent.com/zovlane/GhostHub/main/main.lua"))()
 -- ============================================================
 local TweenService      = game:GetService("TweenService")
@@ -18,7 +18,7 @@ local CoreGui           = game:GetService("CoreGui")
 local VirtualUser       = game:GetService("VirtualUser")
 
 -- ============================================================
--- CLEANUP (re-execute safe — Vision Hub pattern)
+-- CLEANUP (re-execute safe â€” Vision Hub pattern)
 -- ============================================================
 local queue_on_teleport = queue_on_teleport
     or (syn and syn.queue_on_teleport)
@@ -47,7 +47,7 @@ for _, gui in ipairs(CoreGui:GetChildren()) do
         pcall(function() gui:Destroy() end)
     end
 end
--- destroy previous WindUI window — patched WindUI nests inside CoreGui.RobloxGui
+-- destroy previous WindUI window â€” patched WindUI nests inside CoreGui.RobloxGui
 pcall(function()
     local robloxGui = CoreGui:FindFirstChild("RobloxGui")
     if robloxGui then
@@ -370,7 +370,7 @@ function Modules.TeleportToPlayer(target)
 end
 
 -- ============================================================
--- FLING SYSTEM (Epix/Skid proven algorithm — supports single or "all")
+-- FLING SYSTEM (Epix/Skid proven algorithm â€” supports single or "all")
 -- ============================================================
 local function miniFling(Targets)
     local AllBool = false
@@ -532,7 +532,7 @@ local SkidFling = function(TargetPlayer)
 end
 
 -- ============================================================
--- SHOOT MURDERER (finds Tool with "Shoot" RemoteEvent — correct MM2 mechanic)
+-- SHOOT MURDERER (finds Tool with "Shoot" RemoteEvent â€” correct MM2 mechanic)
 -- ============================================================
 local function findGunTool()
     local char = LocalPlayer.Character
@@ -656,7 +656,7 @@ function Modules.ShootMurdererOnce()
     end)
 end
 
--- Silent Aim: __namecall hook — intercepts every Shoot:FireServer and redirects to murderer
+-- Silent Aim: __namecall hook â€” intercepts every Shoot:FireServer and redirects to murderer
 local _silentAimEnabled = false
 pcall(function()
     local mt  = getrawmetatable(game)
@@ -686,7 +686,7 @@ function Modules.ShootMurdererSilent()
     _silentAimEnabled = not _silentAimEnabled
     WindUI:Notify({
         Title   = "Silent Aim",
-        Content = _silentAimEnabled and "Enabled — shots redirect to murderer!" or "Disabled",
+        Content = _silentAimEnabled and "Enabled â€” shots redirect to murderer!" or "Disabled",
         Icon    = _silentAimEnabled and "crosshair" or "x-circle",
         Duration = 2,
     })
@@ -894,7 +894,7 @@ do
 end
 
 -- ============================================================
--- KILL ALL (firetouchinterest on knife Handle — no teleport needed)
+-- KILL ALL (firetouchinterest on knife Handle â€” no teleport needed)
 -- ============================================================
 local function equipKnife()
     local char = LocalPlayer.Character
@@ -1084,7 +1084,7 @@ function Modules.PlayEmote(emoteName)
 end
 
 -- ============================================================
--- ROUND TIMER (event-based — GetTimer blocks in lobby so we use RoundStart/GameOver)
+-- ROUND TIMER (event-based â€” GetTimer blocks in lobby so we use RoundStart/GameOver)
 -- ============================================================
 do
     local timerTask = nil; local timerGui = nil
@@ -1183,7 +1183,7 @@ do
 
     local function loopRoleMonitor()
         while true do
-            -- use getMap() to detect if in round — works even if script ran mid-round
+            -- use getMap() to detect if in round â€” works even if script ran mid-round
             local inRound = getMap() ~= nil
             if inRound then
                 -- get roles from server for accuracy
@@ -1204,7 +1204,7 @@ do
                     if p then
                         notifiedM = true
                         pcall(function()
-                            WindUI:Notify({Title="🔪 Murderer Detected!", Content=p.Name,
+                            WindUI:Notify({Title="ðŸ”ª Murderer Detected!", Content=p.Name,
                                 Icon="rbxthumb://type=AvatarHeadShot&id="..p.UserId.."&w=150&h=150",
                                 Duration=8})
                         end)
@@ -1215,7 +1215,7 @@ do
                     if p then
                         notifiedS = true
                         pcall(function()
-                            WindUI:Notify({Title="🔫 Sheriff Detected!", Content=p.Name,
+                            WindUI:Notify({Title="ðŸ”« Sheriff Detected!", Content=p.Name,
                                 Icon="rbxthumb://type=AvatarHeadShot&id="..p.UserId.."&w=150&h=150",
                                 Duration=8})
                         end)
@@ -1271,8 +1271,8 @@ function Modules.ChatRoles()
     if murdName == "Unknown" then local m = Modules.FindMurderer(); murdName = m and m.Name or "Unknown" end
     if sherName == "Unknown" then local s = Modules.FindSheriff(); sherName = s and s.Name or "Unknown" end
 
-    local msg = "🔪 Murderer: "..murdName.." | 🔫 Sheriff: "..sherName
-    if heroName then msg = msg .. " | ⭐ Hero: "..heroName end
+    local msg = "ðŸ”ª Murderer: "..murdName.." | ðŸ”« Sheriff: "..sherName
+    if heroName then msg = msg .. " | â­ Hero: "..heroName end
     sendChat(msg)
 end
 
@@ -1381,7 +1381,7 @@ end)
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- ============================================================
--- WINDOW (our styling — MAC buttons, gradient open button)
+-- WINDOW (our styling â€” MAC buttons, gradient open button)
 -- ============================================================
 local _borderStroke  = nil
 local borderColor    = Color3.fromRGB(255, 115, 0)
@@ -1391,8 +1391,8 @@ local borderThickness= 5
 local _avatarIcon = "rbxthumb://type=AvatarHeadShot&id="..LocalPlayer.UserId.."&w=150&h=150"
 
 local Window = WindUI:CreateWindow({
-    Title   = "🎃 Ghost HUB",
-    Author  = "👻 halloween · v5.0",
+    Title   = "ðŸŽƒ Ghost HUB",
+    Author  = "ðŸ‘» halloween Â· v5.0",
     Folder  = "GhostHubV5",
     Icon    = _avatarIcon,
     Size    = isMobile and UDim2.new(0,280,0,380) or UDim2.new(0,620,0,680),
@@ -1409,7 +1409,7 @@ Window.ConfigManager:CreateConfig("Default")
 pcall(function() Window:SetToggleKey(Enum.KeyCode.G) end)
 
 -- ============================================================
--- 🎃 CANDY HARVEST — FARM / AUTOMATION SYSTEM
+-- ðŸŽƒ CANDY HARVEST â€” FARM / AUTOMATION SYSTEM
 -- ============================================================
 local FarmConfig = {
     -- Coin Farm
@@ -1444,7 +1444,7 @@ local _farmFlingCooldown = 0
 local _antiAFKConn       = nil
 local _bagFullHandled    = false
 
--- ── Coin helpers (AutoFarm v1 method: TouchInterest check) ──
+-- â”€â”€ Coin helpers (AutoFarm v1 method: TouchInterest check) â”€â”€
 local function getCoins()
     local coins = {}
     for _, child in ipairs(workspace:GetChildren()) do
@@ -1508,7 +1508,7 @@ local function isBagFull()
     return ok and full
 end
 
--- ── Safe spot teleport (AutoFarm v2 safe spot) ──
+-- â”€â”€ Safe spot teleport (AutoFarm v2 safe spot) â”€â”€
 local function teleportToSafeSpot()
     local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
@@ -1529,7 +1529,7 @@ local function teleportToSafeSpot()
     end
 end
 
--- ── Kill All Anchor (AutoFarm method: anchor HRP + Stab:FireServer) ──
+-- â”€â”€ Kill All Anchor (AutoFarm method: anchor HRP + Stab:FireServer) â”€â”€
 local function killAllAnchor()
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1552,7 +1552,7 @@ local function killAllAnchor()
     pcall(function() char.Knife.Stab:FireServer("Slash") end)
 end
 
--- ── Destroy map except coins ──
+-- â”€â”€ Destroy map except coins â”€â”€
 local function destroyMapExceptCoins()
     for _, child in pairs(workspace:GetChildren()) do
         if child:IsA("Model") and child:FindFirstChild("CoinContainer") then
@@ -1563,7 +1563,7 @@ local function destroyMapExceptCoins()
     end
 end
 
--- ── Destroy other players from workspace ──
+-- â”€â”€ Destroy other players from workspace â”€â”€
 local function destroyOtherPlayers()
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
@@ -1573,7 +1573,7 @@ local function destroyOtherPlayers()
     end
 end
 
--- ── Shuffle weapons ──
+-- â”€â”€ Shuffle weapons â”€â”€
 local function shuffleWeapons()
     local weapons = {}
     pcall(function()
@@ -1607,7 +1607,7 @@ local function applyAntiAFK(enabled)
     end
 end
 
--- ── Stats overlay ──
+-- â”€â”€ Stats overlay â”€â”€
 local _coinsCollected = 0; local _farmStartTime = tick()
 pcall(function()
     local CoinCollected = ReplicatedStorage.Remotes.Gameplay:FindFirstChild("CoinCollected")
@@ -1642,7 +1642,7 @@ pcall(function()
     end
 end)
 
--- ── Round start handler ──
+-- â”€â”€ Round start handler â”€â”€
 pcall(function()
     AddConnection(ReplicatedStorage.Remotes.Gameplay.RoundStart.OnClientEvent:Connect(function()
         _coinsCollected = 0; _farmStartTime = tick()
@@ -1663,7 +1663,7 @@ pcall(function()
     end))
 end)
 
--- ── CoinFarm v2: firetouchinterest instant collection loop ──
+-- â”€â”€ CoinFarm v2: firetouchinterest instant collection loop â”€â”€
 task.spawn(function()
     while true do
         task.wait(0.05)
@@ -1691,7 +1691,7 @@ task.spawn(function()
     end
 end)
 
--- ── CoinFarm v1: TweenService smooth / instant TP loop ──
+-- â”€â”€ CoinFarm v1: TweenService smooth / instant TP loop â”€â”€
 task.spawn(function()
     while true do
         task.wait(0.05)
@@ -1720,7 +1720,7 @@ task.spawn(function()
     end
 end)
 
--- ── XP farm loop ──
+-- â”€â”€ XP farm loop â”€â”€
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -1752,7 +1752,7 @@ task.spawn(function()
     end
 end)
 
--- ── Auto Prestige loop ──
+-- â”€â”€ Auto Prestige loop â”€â”€
 task.spawn(function()
     while true do
         task.wait(30)
@@ -1762,7 +1762,7 @@ task.spawn(function()
     end
 end)
 
--- ── Auto Open Crates loop ──
+-- â”€â”€ Auto Open Crates loop â”€â”€
 task.spawn(function()
     while true do
         task.wait(1)
@@ -1774,7 +1774,7 @@ task.spawn(function()
     end
 end)
 
--- ── Emote spam loop ──
+-- â”€â”€ Emote spam loop â”€â”€
 task.spawn(function()
     while true do
         task.wait(1 / math.max(FarmConfig.EmoteSpamSpeed, 1))
@@ -1784,7 +1784,7 @@ task.spawn(function()
     end
 end)
 
--- ── Shuffle weapons loop ──
+-- â”€â”€ Shuffle weapons loop â”€â”€
 task.spawn(function()
     while true do
         task.wait(5)
@@ -1792,7 +1792,7 @@ task.spawn(function()
     end
 end)
 
--- ── Server hop when empty ──
+-- â”€â”€ Server hop when empty â”€â”€
 AddConnection(Players.PlayerRemoving:Connect(function()
     task.defer(function()
         if FarmConfig.AutoServerHopEmpty and #Players:GetPlayers() <= FarmConfig.ServerHopThreshold then
@@ -1805,17 +1805,17 @@ end))
 -- TABS (our sidebar Section system + Vision Hub tab content)
 -- ============================================================
 
--- ── HOME ────────────────────────────────────────────────────
-local HomeTab = Window:Tab({Title="🎃 Haunted Hub", Icon="skull"})
+-- â”€â”€ HOME â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+local HomeTab = Window:Tab({Title="ðŸŽƒ Haunted Hub", Icon="skull"})
 HomeTab:Paragraph({
-    Title = "🎃 Welcome to Ghost HUB!",
-    Desc  = "Halloween Edition v5.0 — All AutoFarm methods loaded. RShift to toggle.",
+    Title = "ðŸŽƒ Welcome to Ghost HUB!",
+    Desc  = "Halloween Edition v5.0 â€” All AutoFarm methods loaded. RShift to toggle.",
 })
 HomeTab:Space()
 HomeTab:Paragraph({
-    Title = "🕸️ Changelog v5.0 — Halloween",
+    Title = "ðŸ•¸ï¸ Changelog v5.0 â€” Halloween",
     Desc  = [[
-[Ghost HUB v5.0 — Halloween Edition]
+[Ghost HUB v5.0 â€” Halloween Edition]
 + Full Halloween theme: orange border, spooky names
 + AutoFarm v1: TweenService smooth coin farm (TouchInterest check)
 + AutoFarm v2: firetouchinterest instant collection
@@ -1839,7 +1839,7 @@ HomeTab:Paragraph({
 + MultiSection Teleports (Players / Roles / Locations)
 + MultiSection Misc (Fling / Emotes / Chat)
 + ButtonKeybind elements (G=GrabGun, K=KillAll, E=Shoot, Q=Throw)
-+ Buttons tab — draggable individual mobile buttons
++ Buttons tab â€” draggable individual mobile buttons
 + Save / Load Config
 + Auto Shoot with ping prediction (rf:InvokeServer AH2)
 + Kill All + Auto Kill + Knife Aura (with Stab remote)
@@ -1865,11 +1865,11 @@ HomeTab:Paragraph({
 HomeTab:Space()
 HomeTab:Paragraph({Title="Found a bug?", Desc="-- Re-execute the script or rejoin --"})
 
--- ── COMBAT SECTION ─────────────────────────────────────────
-local CombatSection = Window:Section({Title="Dark Spells 🔮", Opened=true})
+-- â”€â”€ COMBAT SECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+local CombatSection = Window:Section({Title="Dark Spells ðŸ”®", Opened=true})
 
 -- Combat Tab
-local CombatTab = CombatSection:Tab({Title="Blood Ritual 🩸", Icon="crosshair"})
+local CombatTab = CombatSection:Tab({Title="Blood Ritual ðŸ©¸", Icon="crosshair"})
 
 local CombatGeneral = CombatTab:Section({Title="General", Opened=true})
 CombatGeneral:Button({Title="Grab Gun [G]", Desc="Pick up gun from the map",
@@ -1882,10 +1882,10 @@ CombatGeneral:Toggle({Title="God Mode", Desc="Grants extra lives", Flag="GodMode
 CombatGeneral:Toggle({Title="Anti-Fling", Desc="Prevents players from flinging you", Flag="AntiFlingToggle",
     Callback=Modules.ToggleAntiFling})
 
-local CombatMurdS = CombatTab:Section({Title="💀 Murderer", Opened=true})
+local CombatMurdS = CombatTab:Section({Title="ðŸ’€ Murderer", Opened=true})
 CombatMurdS:Button({Title="Kill All [K]", Desc="Kill all players (firetouchinterest)",
     Icon="skull", Callback=Modules.KillAll})
-CombatMurdS:Button({Title="☠️ Kill All (Anchor)", Desc="Anchor HRP + Stab:FireServer — AutoFarm method",
+CombatMurdS:Button({Title="â˜ ï¸ Kill All (Anchor)", Desc="Anchor HRP + Stab:FireServer â€” AutoFarm method",
     Icon="skull", Callback=function() task.spawn(killAllAnchor) end})
 CombatMurdS:Toggle({Title="Auto Kill All", Desc="Automatically kill players", Flag="AutoKillToggle",
     Callback=Modules.ToggleAutoKillAll})
@@ -1900,10 +1900,10 @@ CombatMurdS:Toggle({Title="Auto Knife Throw", Desc="Throws knife at nearest auto
 CombatMurdS:Button({Title="Throw Knife [Q]", Desc="Throw knife at nearest player",
     Icon="crosshair", Callback=Modules.ExecuteThrowAtNearest})
 
-local CombatSherS = CombatTab:Section({Title="🔫 Sheriff", Opened=true})
+local CombatSherS = CombatTab:Section({Title="ðŸ”« Sheriff", Opened=true})
 CombatSherS:Toggle({Title="Auto Shoot (TP method)", Desc="Automatically shoots the murderer (TP + Shoot:FireServer)", Flag="AutoShootMurderer",
     Callback=Modules.ToggleAutoShootMurderer})
-CombatSherS:Toggle({Title="🎯 Auto Shoot AH2", Desc="RenderStepped raycast + KnifeLocal.CreateBeam:InvokeServer — AutoFarm method", Flag="AutoShootAH2Toggle",
+CombatSherS:Toggle({Title="ðŸŽ¯ Auto Shoot AH2", Desc="RenderStepped raycast + KnifeLocal.CreateBeam:InvokeServer â€” AutoFarm method", Flag="AutoShootAH2Toggle",
     Callback=function(v)
         if v then
             AddConnection(RunService.RenderStepped:Connect(function()
@@ -1941,13 +1941,13 @@ CombatSherS:Toggle({Title="🎯 Auto Shoot AH2", Desc="RenderStepped raycast + K
     end})
 CombatSherS:Button({Title="TP & Shoot Murderer [E]", Desc="Teleports in front of murderer then shoots",
     Icon="crosshair", Callback=Modules.ShootMurdererOnce})
-CombatSherS:Button({Title="Toggle Silent Aim", Desc="Hooks your gun — every shot auto-aims at murderer",
+CombatSherS:Button({Title="Toggle Silent Aim", Desc="Hooks your gun â€” every shot auto-aims at murderer",
     Icon="crosshair", Callback=Modules.ShootMurdererSilent})
 
 -- Visuals Tab
-local VisualsTab = CombatSection:Tab({Title="Spirit Eye 👁", Icon="eye"})
+local VisualsTab = CombatSection:Tab({Title="Spirit Eye ðŸ‘", Icon="eye"})
 
--- ESP system (Vision Hub exact — Highlight + BillboardGui)
+-- ESP system (Vision Hub exact â€” Highlight + BillboardGui)
 local ESP_Folder = CoreGui:FindFirstChild("VisionESP")
 if not ESP_Folder then
     ESP_Folder = Instance.new("Folder"); ESP_Folder.Name="VisionESP"; ESP_Folder.Parent=CoreGui
@@ -2104,9 +2104,9 @@ VisualsNotify:Toggle({Title="Notify Sheriff", Desc="Alert with picture when Sher
     Callback=function(v) Modules.Config.NotifySheriff=v; Modules.UpdateRoleNotify() end})
 
 -- Troll Tab
-local TrollTab = CombatSection:Tab({Title="Cursed Tricks 💀", Icon="zap"})
+local TrollTab = CombatSection:Tab({Title="Cursed Tricks ðŸ’€", Icon="zap"})
 
--- ── CHAT (first) ───────────────────────────────────────────
+-- â”€â”€ CHAT (first) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 local TrollChat = TrollTab:Section({Title="Chat", Opened=true})
 TrollChat:Button({Title="Expose Roles in Chat", Desc="Say murderer/sheriff names in chat",
     Icon="message-circle", Callback=Modules.ChatRoles})
@@ -2132,7 +2132,7 @@ do
                     if autoExposeId == myId then pcall(Modules.ChatRoles) end
                 end)
             end
-            -- hook the real RoundStart remote — fires reliably every round
+            -- hook the real RoundStart remote â€” fires reliably every round
             pcall(function()
                 _autoExposeRoundConn = AddConnection(
                     ReplicatedStorage.Remotes.Gameplay.RoundStart.OnClientEvent:Connect(function()
@@ -2208,10 +2208,10 @@ TrollEmotes:Button({Title="Play Emote", Icon="play",
         if selectedEmote then Modules.PlayEmote(selectedEmote) end
     end})
 
--- ── MOVEMENT SECTION ───────────────────────────────────────
-local MovSection = Window:Section({Title="Shadow Walk 🌙", Opened=true})
+-- â”€â”€ MOVEMENT SECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+local MovSection = Window:Section({Title="Shadow Walk ðŸŒ™", Opened=true})
 
-local PlayerTab = MovSection:Tab({Title="Phantom Steps 👣", Icon="footprints"})
+local PlayerTab = MovSection:Tab({Title="Phantom Steps ðŸ‘£", Icon="footprints"})
 local CharSec = PlayerTab:Section({Title="Character", Opened=true})
 CharSec:Toggle({Title="Enable WalkSpeed", Desc="Allow custom speed", Flag="EnableWSToggle",
     Callback=Modules.EnableWalkSpeed})
@@ -2232,7 +2232,7 @@ CharSec:Button({Title="Reset Character", Desc="Respawn your character", Icon="re
         if Modules.Character then Modules.Character:BreakJoints() end
     end})
 
-local TpTab = MovSection:Tab({Title="Dark Portal 🔮", Icon="map-pin"})
+local TpTab = MovSection:Tab({Title="Dark Portal ðŸ”®", Icon="map-pin"})
 
 local TpPlayers = TpTab:Section({Title="Players", Opened=true})
 local selectedPlayer = nil
@@ -2271,16 +2271,16 @@ local TpLocations = TpTab:Section({Title="Locations", Opened=true})
 TpLocations:Button({Title="Teleport to Lobby", Icon="house", Callback=Modules.TeleportToLobby})
 TpLocations:Button({Title="Teleport to Map", Icon="map", Callback=Modules.TeleportToMap})
 
--- ── CANDY HARVEST SECTION ──────────────────────────────────
-local AutoSection = Window:Section({Title="Candy Harvest 🍬", Opened=true})
+-- â”€â”€ CANDY HARVEST SECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+local AutoSection = Window:Section({Title="Candy Harvest ðŸ¬", Opened=true})
 
-local FarmTab = AutoSection:Tab({Title="Candy Farm 🍭", Icon="dollar-sign"})
+local FarmTab = AutoSection:Tab({Title="Candy Farm ðŸ­", Icon="dollar-sign"})
 
 -- Candy Collection (Coin Farm)
-local FarmCoinSub = FarmTab:Section({Title="Candy Collection 🍬", Opened=true})
-FarmCoinSub:Toggle({Title="🍭 Smooth Candy Farm", Desc="TweenService smooth movement to each coin (v1)", Flag="CoinFarmToggle",
+local FarmCoinSub = FarmTab:Section({Title="Candy Collection ðŸ¬", Opened=true})
+FarmCoinSub:Toggle({Title="ðŸ­ Smooth Candy Farm", Desc="TweenService smooth movement to each coin (v1)", Flag="CoinFarmToggle",
     Callback=function(v) FarmConfig.CoinEnabled = v; FarmConfig.CoinFarmV2 = false end})
-FarmCoinSub:Toggle({Title="⚡ Instant Candy Farm", Desc="firetouchinterest instant collection — fastest (v2)", Flag="CoinFarmV2Toggle",
+FarmCoinSub:Toggle({Title="âš¡ Instant Candy Farm", Desc="firetouchinterest instant collection â€” fastest (v2)", Flag="CoinFarmV2Toggle",
     Callback=function(v) FarmConfig.CoinFarmV2 = v; if v then FarmConfig.CoinEnabled = false end end})
 FarmCoinSub:Toggle({Title="Instant Teleport", Desc="Snap directly to each coin (smooth mode only)", Flag="CoinInstantTPToggle",
     Callback=function(v) FarmConfig.CoinInstantTP = v end})
@@ -2288,7 +2288,7 @@ FarmCoinSub:Slider({Title="Farm Speed", Desc="Studs/sec toward each coin (smooth
     Value={Min=1, Max=200, Default=22},
     Callback=function(v) FarmConfig.CoinSpeed = v end})
 FarmCoinSub:Space()
-FarmCoinSub:Button({Title="🕸️ Collect All Now", Icon="zap", Desc="Instantly teleport to every coin on the map",
+FarmCoinSub:Button({Title="ðŸ•¸ï¸ Collect All Now", Icon="zap", Desc="Instantly teleport to every coin on the map",
     Callback=function()
         task.spawn(function()
             local lc  = LocalPlayer.Character
@@ -2301,17 +2301,17 @@ FarmCoinSub:Button({Title="🕸️ Collect All Now", Icon="zap", Desc="Instantly
                     task.wait(0.05)
                 end
             end
-            WindUI:Notify({Title="🎃 Done!", Content="Collected " .. #all .. " candy coins!", Icon="check-circle", Duration=3})
+            WindUI:Notify({Title="ðŸŽƒ Done!", Content="Collected " .. #all .. " candy coins!", Icon="check-circle", Duration=3})
         end)
     end})
 FarmCoinSub:Button({Title="Check Candy Count", Icon="search", Desc="See how many coins are on the map",
     Callback=function()
         local count = #getCoins()
-        WindUI:Notify({Title=count .. " 🍬 Candies Found",
-            Content=count > 0 and "Happy haunting!" or "No candy yet — wait for a round.",
+        WindUI:Notify({Title=count .. " ðŸ¬ Candies Found",
+            Content=count > 0 and "Happy haunting!" or "No candy yet â€” wait for a round.",
             Icon=count > 0 and "check-circle" or "info", Duration=3})
     end})
-FarmCoinSub:Button({Title="👻 Teleport to Safe Spot", Icon="map-pin", Desc="Teleport under the map to safe spot (-106, 87.5, 2)",
+FarmCoinSub:Button({Title="ðŸ‘» Teleport to Safe Spot", Icon="map-pin", Desc="Teleport under the map to safe spot (-106, 87.5, 2)",
     Callback=function() task.spawn(teleportToSafeSpot) end})
 FarmCoinSub:Space()
 FarmCoinSub:Toggle({Title="Auto-Fling Murderer When Done",
@@ -2321,56 +2321,56 @@ FarmCoinSub:Space()
 FarmCoinSub:Button({Title="Check Bag", Icon="package", Desc="See if your candy bag is full",
     Callback=function()
         local full = isBagFull()
-        WindUI:Notify({Title=full and "🎃 Bag Full!" or "Bag Not Full",
+        WindUI:Notify({Title=full and "ðŸŽƒ Bag Full!" or "Bag Not Full",
             Content=full and "Your candy bag is bursting!" or "Still room for more candy.",
             Icon=full and "check-circle" or "info", Duration=3})
     end})
 FarmCoinSub:Space()
 
 -- Bag Full Actions
-local BagFullSub = FarmTab:Section({Title="When Bag Is Full 🎃", Opened=true})
-BagFullSub:Toggle({Title="💀 Kill All at Bag Full", Desc="Kill everyone when bag is full (Murderer only — anchor method)", Flag="KillAtBagToggle",
+local BagFullSub = FarmTab:Section({Title="When Bag Is Full ðŸŽƒ", Opened=true})
+BagFullSub:Toggle({Title="ðŸ’€ Kill All at Bag Full", Desc="Kill everyone when bag is full (Murderer only â€” anchor method)", Flag="KillAtBagToggle",
     Callback=function(v) FarmConfig.KillAtBag = v end})
-BagFullSub:Toggle({Title="🌪️ Fling at Bag Full", Desc="Fling the murderer when bag is full", Flag="FlingAtBagToggle",
+BagFullSub:Toggle({Title="ðŸŒªï¸ Fling at Bag Full", Desc="Fling the murderer when bag is full", Flag="FlingAtBagToggle",
     Callback=function(v) FarmConfig.FlingAtBag = v end})
-BagFullSub:Toggle({Title="👻 Teleport Under Map at Bag Full", Desc="Teleport to safe spot when bag is full", Flag="TpUnderAtBagToggle",
+BagFullSub:Toggle({Title="ðŸ‘» Teleport Under Map at Bag Full", Desc="Teleport to safe spot when bag is full", Flag="TpUnderAtBagToggle",
     Callback=function(v) FarmConfig.TeleportUnderAtBag = v end})
-BagFullSub:Toggle({Title="☠️ Die at Bag Full", Desc="Kill yourself when bag is full to reset round", Flag="DieAtBagToggle",
+BagFullSub:Toggle({Title="â˜ ï¸ Die at Bag Full", Desc="Kill yourself when bag is full to reset round", Flag="DieAtBagToggle",
     Callback=function(v) FarmConfig.DieAtBag = v end})
 BagFullSub:Space()
 
 -- XP Farm
-local FarmXPSub = FarmTab:Section({Title="🩸 XP Farm", Opened=true})
+local FarmXPSub = FarmTab:Section({Title="ðŸ©¸ XP Farm", Opened=true})
 FarmXPSub:Toggle({Title="Enable XP Farm",
     Desc="Every 1.5s: teleports behind murderer and fires your tool", Flag="XPFarmToggle",
     Callback=function(v) FarmConfig.XPFarmEnabled = v end})
 FarmXPSub:Space()
 
 -- Anti AFK
-local FarmAFKSub = FarmTab:Section({Title="🕯️ Anti AFK", Opened=true})
+local FarmAFKSub = FarmTab:Section({Title="ðŸ•¯ï¸ Anti AFK", Opened=true})
 FarmAFKSub:Toggle({Title="Enable Anti AFK", Desc="Prevents kick on idle", Flag="AntiAFKToggle",
     Callback=function(v) FarmConfig.AntiAFKEnabled = v; applyAntiAFK(v) end})
 FarmAFKSub:Space()
 
--- ── Dark Rituals Tab ────────────────────────────────────────
-local RitualsTab = AutoSection:Tab({Title="Dark Rituals ⚗️", Icon="flask"})
+-- â”€â”€ Dark Rituals Tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+local RitualsTab = AutoSection:Tab({Title="Dark Rituals âš—ï¸", Icon="flask"})
 
 -- Round Start Actions
-local RoundStartSub = RitualsTab:Section({Title="On Round Start 🎃", Opened=true})
-RoundStartSub:Toggle({Title="💀 Kill Everyone on Start", Desc="Kill all players at round start (Murderer — anchor method)", Flag="KillOnStartToggle",
+local RoundStartSub = RitualsTab:Section({Title="On Round Start ðŸŽƒ", Opened=true})
+RoundStartSub:Toggle({Title="ðŸ’€ Kill Everyone on Start", Desc="Kill all players at round start (Murderer â€” anchor method)", Flag="KillOnStartToggle",
     Callback=function(v) FarmConfig.KillOnStart = v end})
-RoundStartSub:Toggle({Title="🌪️ Fling Murderer on Start", Desc="Auto-fling the murderer at round start", Flag="FlingMurdOnStartToggle",
+RoundStartSub:Toggle({Title="ðŸŒªï¸ Fling Murderer on Start", Desc="Auto-fling the murderer at round start", Flag="FlingMurdOnStartToggle",
     Callback=function(v) FarmConfig.FlingMurdOnStart = v end})
-RoundStartSub:Toggle({Title="🌪️ Fling Sheriff on Start", Desc="Auto-fling the sheriff at round start", Flag="FlingSheriOnStartToggle",
+RoundStartSub:Toggle({Title="ðŸŒªï¸ Fling Sheriff on Start", Desc="Auto-fling the sheriff at round start", Flag="FlingSheriOnStartToggle",
     Callback=function(v) FarmConfig.FlingSheriOnStart = v end})
 RoundStartSub:Space()
 
 -- Cursed Automation
-local CursedAutoSub = RitualsTab:Section({Title="Cursed Automation 🕸️", Opened=true})
-CursedAutoSub:Toggle({Title="🏆 Auto Prestige", Desc="Automatically prestige every 30 seconds", Flag="AutoPrestigeToggle",
+local CursedAutoSub = RitualsTab:Section({Title="Cursed Automation ðŸ•¸ï¸", Opened=true})
+CursedAutoSub:Toggle({Title="ðŸ† Auto Prestige", Desc="Automatically prestige every 30 seconds", Flag="AutoPrestigeToggle",
     Callback=function(v) FarmConfig.AutoPrestige = v end})
 CursedAutoSub:Space()
-CursedAutoSub:Toggle({Title="📦 Auto Open Crates", Desc="Automatically open crates every second", Flag="AutoCratesToggle",
+CursedAutoSub:Toggle({Title="ðŸ“¦ Auto Open Crates", Desc="Automatically open crates every second", Flag="AutoCratesToggle",
     Callback=function(v) FarmConfig.AutoOpenCrates = v end})
 CursedAutoSub:Dropdown({Title="Crate Name", Desc="Which crate to open", Flag="CrateNameBox",
     Values={"Classic","Vintage","Knife","Gun","Pet","Rainbow"},
@@ -2379,7 +2379,7 @@ CursedAutoSub:Dropdown({Title="Crate Type", Desc="Crate type", Flag="CrateTypeBo
     Values={"Normal","Premium","Special"},
     Callback=function(v) FarmConfig.CrateType = v end})
 CursedAutoSub:Space()
-CursedAutoSub:Toggle({Title="🌐 Auto Server Hop When Empty", Desc="Server hop when player count drops below threshold", Flag="AutoHopEmptyToggle",
+CursedAutoSub:Toggle({Title="ðŸŒ Auto Server Hop When Empty", Desc="Server hop when player count drops below threshold", Flag="AutoHopEmptyToggle",
     Callback=function(v) FarmConfig.AutoServerHopEmpty = v end})
 CursedAutoSub:Slider({Title="Player Threshold", Desc="Hop when players fall to this count", Flag="HopThresholdSlider",
     Value={Min=1, Max=20, Default=2},
@@ -2387,8 +2387,8 @@ CursedAutoSub:Slider({Title="Player Threshold", Desc="Hop when players fall to t
 CursedAutoSub:Space()
 
 -- Phantom Chaos
-local PhantomSub = RitualsTab:Section({Title="Phantom Chaos 💫", Opened=true})
-PhantomSub:Toggle({Title="🎭 Emote Spam", Desc="Spam a selected emote continuously", Flag="EmoteSpamToggle",
+local PhantomSub = RitualsTab:Section({Title="Phantom Chaos ðŸ’«", Opened=true})
+PhantomSub:Toggle({Title="ðŸŽ­ Emote Spam", Desc="Spam a selected emote continuously", Flag="EmoteSpamToggle",
     Callback=function(v) FarmConfig.EmoteSpam = v end})
 PhantomSub:Dropdown({Title="Emote to Spam", Desc="Pick your spooky emote", Flag="EmoteSpamDropdown",
     Values={"sit","zombie","ninja","zen","floss","dab"},
@@ -2397,27 +2397,27 @@ PhantomSub:Slider({Title="Emote Speed", Desc="Emotes per second", Flag="EmoteSpe
     Value={Min=1, Max=20, Default=1},
     Callback=function(v) FarmConfig.EmoteSpamSpeed = v end})
 PhantomSub:Space()
-PhantomSub:Toggle({Title="🎲 Shuffle Weapons", Desc="Randomly equip a different weapon every 5 seconds", Flag="ShuffleWeaponsToggle",
+PhantomSub:Toggle({Title="ðŸŽ² Shuffle Weapons", Desc="Randomly equip a different weapon every 5 seconds", Flag="ShuffleWeaponsToggle",
     Callback=function(v) FarmConfig.ShuffleWeapons = v end})
 PhantomSub:Space()
-PhantomSub:Button({Title="🗺️ Destroy Map (Keep Coins)", Icon="trash", Desc="Destroy all map parts except the CoinContainer",
+PhantomSub:Button({Title="ðŸ—ºï¸ Destroy Map (Keep Coins)", Icon="trash", Desc="Destroy all map parts except the CoinContainer",
     Callback=function() task.spawn(destroyMapExceptCoins) end})
-PhantomSub:Button({Title="👤 Destroy Other Players", Icon="user-x", Desc="Remove other players from workspace (visual)",
+PhantomSub:Button({Title="ðŸ‘¤ Destroy Other Players", Icon="user-x", Desc="Remove other players from workspace (visual)",
     Callback=function() task.spawn(destroyOtherPlayers) end})
 PhantomSub:Space()
 
 -- Stats
-local StatsSub = RitualsTab:Section({Title="📊 Candy Stats", Opened=true})
+local StatsSub = RitualsTab:Section({Title="ðŸ“Š Candy Stats", Opened=true})
 StatsSub:Button({Title="Check Coins/hr", Icon="bar-chart", Desc="See your current farm rate",
     Callback=function()
         local elapsed = tick() - _farmStartTime
         local perHr = elapsed > 0 and math.floor(_coinsCollected / elapsed * 3600) or 0
-        WindUI:Notify({Title="🍬 " .. _coinsCollected .. " candies collected",
+        WindUI:Notify({Title="ðŸ¬ " .. _coinsCollected .. " candies collected",
             Content="Rate: " .. perHr .. " candies/hr",
             Icon="bar-chart", Duration=5})
     end})
 
--- ── BUTTONS TAB (Vision Hub exact — standalone) ────────────
+-- â”€â”€ BUTTONS TAB (Vision Hub exact â€” standalone) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 local ButtonsTab = Window:Tab({Title="Buttons", Icon="square-mouse-pointer"})
 local BtnSub = ButtonsTab:Section({Title="Mobile Buttons", Subtitle="Customize your action buttons",
     Opened=true, TextXAlignment="Center", Icon="square-mouse-pointer"})
@@ -2486,7 +2486,7 @@ BtnSub:Toggle({Title="Show Teleport Lobby Button", Desc="Teleport back to lobby"
         Modules.CreateGuiButton("TeleportLobby",{Enabled=v,Type="Text",Text="Teleport to Lobby"},Modules.TeleportToLobby)
     end})
 
--- ── SETTINGS TAB (standalone — Vision Hub Config/Theme + our border) ──
+-- â”€â”€ SETTINGS TAB (standalone â€” Vision Hub Config/Theme + our border) â”€â”€
 local SettTab = Window:Tab({Title="Settings", Icon="settings"})
 
 local SettConfig = SettTab:Section({Title="Config", Opened=true})
@@ -2530,7 +2530,7 @@ SettKeybinds:Keybind({Title="Fling Murderer",   Desc="Fling the murderer",      
 
 SettTab:Space()
 
--- ── KEYBIND HANDLERS ───────────────────────────────────────
+-- â”€â”€ KEYBIND HANDLERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 AddConnection(UserInputService.InputBegan:Connect(function(inp, gpe)
     if gpe then return end
     local keyName = tostring(inp.KeyCode):match("Enum.KeyCode.(.+)")
@@ -2558,7 +2558,7 @@ end))
 
 SettTab:Space()
 
-local BorderSub = SettTab:Section({Title="🎃 Border", Opened=true})
+local BorderSub = SettTab:Section({Title="ðŸŽƒ Border", Opened=true})
 BorderSub:Colorpicker({Title="Border Color", Value=Color3.fromRGB(255,115,0),
     Callback=function(v)
         borderColor=v
@@ -2659,40 +2659,72 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- BORDER (solid red by default, driven by colorpicker)
+-- BORDER (orange — finds main frame by scanning WindUI gui)
 -- ============================================================
 task.spawn(function()
-    task.wait(0.5)
-    pcall(function()
-        local mainFrame = Window.UIElements and Window.UIElements.Main
-        if not mainFrame then return end
+    task.wait(1)
+    local function applyBorder()
+        -- search both PlayerGui and CoreGui/RobloxGui for WindUI
+        local windGui = LocalPlayer.PlayerGui:FindFirstChild("WindUI")
+        if not windGui then
+            local rg = CoreGui:FindFirstChild("RobloxGui")
+            windGui = rg and rg:FindFirstChild("WindUI")
+        end
+        if not windGui then return false end
+
+        -- find the largest Frame (the main window container)
+        local mainFrame = nil
+        local biggest = 0
+        for _, obj in ipairs(windGui:GetDescendants()) do
+            if obj:IsA("Frame") then
+                local sz = obj.AbsoluteSize.X * obj.AbsoluteSize.Y
+                if sz > biggest then biggest = sz; mainFrame = obj end
+            end
+        end
+        if not mainFrame then return false end
+
+        -- remove any existing strokes / gradient borders first
+        for _, obj in ipairs(mainFrame:GetDescendants()) do
+            if obj:IsA("UIStroke") then pcall(function() obj:Destroy() end) end
+            if obj.Name == "GradientBorder" then pcall(function() obj:Destroy() end) end
+        end
+
         _borderStroke = Instance.new("UIStroke")
         _borderStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         _borderStroke.Thickness = borderThickness
         _borderStroke.Color     = borderColor
         _borderStroke.Parent    = mainFrame
-        -- suppress WindUI's gradient border for 3s
-        local deadline = tick() + 3
-        while tick() < deadline do
-            pcall(function()
-                for _, obj in ipairs(mainFrame:GetDescendants()) do
-                    if obj:IsA("UIStroke") and obj ~= _borderStroke then obj.Transparency=1 end
-                    if obj.Name == "GradientBorder" then obj:Destroy() end
-                end
-            end)
-            task.wait(0.05)
-        end
+
+        -- keep suppressing any new strokes WindUI tries to add
         mainFrame.DescendantAdded:Connect(function(obj)
             task.defer(function()
-                if obj:IsA("UIStroke") and obj~=_borderStroke then pcall(function() obj.Transparency=1 end) end
-                if obj.Name=="GradientBorder" then pcall(function() obj:Destroy() end) end
+                if obj:IsA("UIStroke") and obj ~= _borderStroke then
+                    pcall(function() obj:Destroy() end)
+                end
+                if obj.Name == "GradientBorder" then pcall(function() obj:Destroy() end) end
             end)
         end)
-    end)
+
+        -- keep color in sync
+        task.spawn(function()
+            while _borderStroke and _borderStroke.Parent do
+                _borderStroke.Color = borderColor
+                _borderStroke.Thickness = borderThickness
+                task.wait(0.5)
+            end
+        end)
+        return true
+    end
+
+    -- retry until WindUI is loaded
+    for i = 1, 20 do
+        if applyBorder() then break end
+        task.wait(0.5)
+    end
 end)
 
 -- ============================================================
--- TOPBAR AVATAR — bigger + red circle ring
+-- TOPBAR AVATAR â€” bigger + red circle ring
 -- ============================================================
 task.spawn(function()
     task.wait(1.0)
@@ -2744,7 +2776,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- OPEN PILL BUTTON (disabled — WindUI toggle handles this)
+-- OPEN PILL BUTTON (disabled â€” WindUI toggle handles this)
 -- ============================================================
 task.spawn(function()
     task.wait(1.2)
