@@ -1,4 +1,4 @@
-﻿-- ============================================================
+-- ============================================================
 -- ðŸŽƒ GHOST HUB v5.0 â€” Halloween Edition
 -- Repo:     https://github.com/zovlane/GhostHub
 -- WindUI:   https://github.com/zovlane/WindUI (our fork â€” loads dist/main.lua)
