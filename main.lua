@@ -1,7 +1,8 @@
 -- ============================================================
 -- 🎃 GHOST HUB v5.0 — Halloween Edition
--- Features: All AutoFarm methods + Vision Hub ported
--- GUI:      WindUI system
+-- Repo:     https://github.com/zovlane/GhostHub
+-- WindUI:   https://github.com/zovlane/WindUI (our fork)
+-- Load:     loadstring(game:HttpGet("https://raw.githubusercontent.com/zovlane/GhostHub/main/main.lua"))()
 -- ============================================================
 local TweenService      = game:GetService("TweenService")
 local Players           = game:GetService("Players")
