@@ -96,6 +96,15 @@ end
 local _borderStroke   = nil
 local borderColor     = Color3.fromRGB(255, 115, 0)
 local borderThickness = 3
+local _borderGradient = nil
+local function applyBorderColor()
+    if not _borderGradient then return end
+    _borderGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, borderColor),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(183, 107, 255)),
+        ColorSequenceKeypoint.new(1, borderColor),
+    })
+end
 
 -- ============================================================
 -- LOADING WINDUI
@@ -1390,6 +1399,71 @@ local isMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- avatar as topbar icon
 local _avatarIcon = "rbxthumb://type=AvatarHeadShot&id="..LocalPlayer.UserId.."&w=150&h=150"
 
+-- ── Halloween theme (gradient values become UIGradients inside WindUI) ──
+do
+    local ORANGE = Color3.fromHex("#ff7a00")
+    local AMBER  = Color3.fromHex("#ffb347")
+    local VIOLET = Color3.fromHex("#b76bff")
+    local function grad(a, b, c, rotation)
+        local stops = {["0"] = {Color = a}, ["100"] = {Color = c or b}}
+        if c then stops["50"] = {Color = b} end
+        return WindUI:Gradient(stops, {Rotation = rotation or 0})
+    end
+    WindUI:AddTheme({
+        Name = "Halloween",
+        Accent      = Color3.fromHex("#1a0e20"),
+        Dialog      = Color3.fromHex("#170c1c"),
+        Outline     = ORANGE,
+        Text        = Color3.fromHex("#fff4e8"),
+        Placeholder = Color3.fromHex("#a08cab"),
+        Background  = Color3.fromHex("#0e0811"),
+        Button      = Color3.fromHex("#4a2a5a"),
+        Icon        = Color3.fromHex("#ffa040"),
+        Toggle      = ORANGE,
+        Slider      = ORANGE,
+        Checkbox    = ORANGE,
+        Primary     = ORANGE,
+        SliderIcon  = Color3.fromHex("#b494c4"),
+
+        PanelBackground = Color3.fromHex("#ffffff"),
+        PanelBackgroundTransparency = 0.965,
+        LabelBackground = Color3.fromHex("#000000"),
+        LabelBackgroundTransparency = 0.8,
+        ElementBackground = Color3.fromHex("#211428"),
+        ElementBackgroundTransparency = 0,
+
+        WindowBackground   = grad(Color3.fromHex("#22102c"), Color3.fromHex("#0c0710"), nil, 90),
+        WindowTopbarTitle  = grad(ORANGE, AMBER, VIOLET),
+        WindowTopbarAuthor = Color3.fromHex("#c6a4d6"),
+        WindowTopbarIcon   = ORANGE,
+        WindowSearchBarBackground = Color3.fromHex("#1a0f20"),
+        SearchBarBorder = ORANGE,
+        SearchBarBorderTransparency = 0.7,
+
+        TabText  = grad(AMBER, VIOLET),
+        TabTitle = grad(ORANGE, AMBER, VIOLET),
+        TabIcon  = ORANGE,
+        TabBackgroundActive = ORANGE,
+        TabBackgroundActiveTransparency = 0.86,
+        TabBorder = ORANGE,
+        TabBorderTransparencyActive = 0.5,
+
+        ElementTitle = grad(Color3.fromHex("#ffffff"), Color3.fromHex("#ffc58a")),
+        ElementDesc  = Color3.fromHex("#bfa9c9"),
+        ElementIcon  = Color3.fromHex("#ff9a3c"),
+        SectionIcon       = Color3.fromHex("#ff9a3c"),
+        SectionExpandIcon = Color3.fromHex("#ff9a3c"),
+        SectionBoxBorder  = ORANGE,
+        SectionBoxBorderTransparency = 0.8,
+
+        NotificationTitle = grad(ORANGE, AMBER, VIOLET),
+        NotificationBorder = ORANGE,
+        NotificationBorderTransparency = 0.6,
+        DropdownBackground = Color3.fromHex("#140b19"),
+        Tooltip = Color3.fromHex("#2a1633"),
+    })
+end
+
 local function fittedWindowSize()
     local cam = workspace.CurrentCamera
     local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
@@ -1404,8 +1478,9 @@ local Window = WindUI:CreateWindow({
     Folder  = "GhostHubV5",
     Icon    = _avatarIcon,
     Size    = fittedWindowSize(),
+    MinSize = Vector2.new(300, 240),
     Transparent   = false,
-    Theme         = "Dark",
+    Theme         = "Halloween",
     NewElements   = true,
     SideBarWidth  = isMobile and 130 or 180,
     HideSearchBar = false,
@@ -1424,6 +1499,10 @@ local Window = WindUI:CreateWindow({
 })
 
 Window.ConfigManager:CreateConfig("Default")
+pcall(function()
+    Window:Tag({Title = "v5.0", Icon = "ghost", Radius = 8,
+        Color = WindUI:Gradient({["0"] = {Color = Color3.fromHex("#ff7a00")}, ["100"] = {Color = Color3.fromHex("#b76bff")}}, {Rotation = 0})})
+end)
 
 -- ============================================================
 -- AUTOFARM (ported from Project Reverse MM2 AutoFarm)
@@ -3585,6 +3664,9 @@ SettTheme:Keybind({Title="Toggle UI", Desc="Open / close the menu", Value="Right
     Callback=function(v)
         pcall(function() Window:SetToggleKey(Enum.KeyCode[v]) end)
     end})
+SettTheme:Dropdown({Title="Theme", Desc="Halloween has gradient text", Flag="ThemeDropdown",
+    Values={"Halloween","Dark"}, Value="Halloween",
+    Callback=function(v) pcall(function() WindUI:SetTheme(v) end) end})
 SettTheme:Toggle({Title="Transparency", Desc="Semi-transparent interface",
     Flag="UiTransparencyToggle", Value=false,
     Callback=function(v) pcall(function() Window:ToggleTransparency(v) end) end})
@@ -3639,7 +3721,7 @@ local BorderSub = SettTab:Section({Title="Border", Opened=true})
 BorderSub:Colorpicker({Title="Border Color", Value=Color3.fromRGB(255,115,0),
     Callback=function(v)
         borderColor=v
-        if _borderStroke then _borderStroke.Color=v end
+        applyBorderColor()
         if getgenv().mm2PillStroke then getgenv().mm2PillStroke.Color=v end
     end})
 BorderSub:Slider({Title="Border Thickness", Value={Min=1,Max=12,Default=3}, Step=1,
@@ -3738,9 +3820,35 @@ task.spawn(function()
     _borderStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     _borderStroke.LineJoinMode    = Enum.LineJoinMode.Round
     _borderStroke.Thickness       = borderThickness
-    _borderStroke.Color           = borderColor
+    _borderStroke.Color           = Color3.new(1, 1, 1)
     _borderStroke.Transparency    = 0
     _borderStroke.Parent          = target
+    _borderGradient = Instance.new("UIGradient")
+    _borderGradient.Parent = _borderStroke
+    applyBorderColor()
+    task.spawn(function()
+        local spin = 0
+        while _borderGradient and _borderGradient.Parent do
+            spin = (spin + RunService.Heartbeat:Wait() * 60) % 360
+            _borderGradient.Rotation = spin
+        end
+    end)
+
+    -- slow shimmer across the gradient title text
+    task.spawn(function()
+        task.wait(1)
+        for _, obj in ipairs(Window.UIElements.Main:GetDescendants()) do
+            if obj:IsA("TextLabel") and obj.Text == "Ghost HUB" then
+                local g = obj:FindFirstChild("LibraryGradient")
+                if g then
+                    g.Offset = Vector2.new(-0.35, 0)
+                    TweenService:Create(g, TweenInfo.new(2.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+                        Offset = Vector2.new(0.35, 0),
+                    }):Play()
+                end
+            end
+        end
+    end)
 
     local oldPumpkin = target:FindFirstChild("GhostPumpkin")
     if oldPumpkin then oldPumpkin:Destroy() end
