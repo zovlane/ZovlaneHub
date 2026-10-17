@@ -1523,7 +1523,6 @@ local AF = {
     ShuffleWeapons  = false,
     XPFarm          = false,
     CoinFarm  = { State=false, Speed=22.5, DestroyMap=false, DestroyPlayers=false, DieAtFullBag=false },
-    CoinFarm2 = { State=false },
     AutoFarm  = {
         TeleportSpawn=false, KillEveryone=false, AutoFlingMurderer=false, AutoFlingSheriff=false,
         AutoPrestige=false, KillAtFullBag=false, TeleportUnderMap=false, FlingMurdererAtFullBag=false,
@@ -1937,7 +1936,7 @@ local function notifyRoleName(role)
     end
 end
 
--- ── Coin Farm 1 (fly / tween to nearest coin) ──
+-- ── Halloween Farm (fly / tween to nearest coin) ──
 local function findNearestCoin()
     local hrp = getHRP()
     if not hrp then return end
@@ -2027,85 +2026,7 @@ local function cf1Start()
 end
 task.spawn(cf1Start)
 
--- ── Coin Farm 2 (safe platform under map + firetouchinterest) ──
-local oldPlatform = Workspace:FindFirstChild("GhostCF2Platform")
-if oldPlatform then oldPlatform:Destroy() end
-local cf2Platform = Instance.new("Part")
-cf2Platform.Name = "GhostCF2Platform"
-cf2Platform.Anchored = true
-cf2Platform.Position = Vector3.new(1, -100, 1)
-cf2Platform.Size = Vector3.new(100, 1.2, 100)
-cf2Platform.Parent = Workspace
-
-local cf2Done, cf2Running = false, false
-local function cf2ToPlatform()
-    local hrp = getHRP()
-    if hrp then
-        hrp.CFrame = CFrame.new(cf2Platform.Position + Vector3.new(math.random(-10, 5), 5, math.random(-10, 5)))
-    end
-end
-local function cf2UnderCoin(coin)
-    local hrp = getHRP()
-    if coin and hrp then hrp.CFrame = CFrame.new(coin.Position + Vector3.new(0, -6, 0)) end
-end
-local function cf2Run()
-    if cf2Running then return end
-    cf2Running = true
-    cf2Done = false
-    if AF.CoinFarm2.State then cf2ToPlatform() end
-    while not cf2Done do
-        local map = getCoinMap()
-        if not map then
-            task.wait(1)
-            if AF.CoinFarm2.State then continue end
-        elseif AF.CoinFarm2.State then
-            task.spawn(function() pcall(destroyMapExceptCoins) end)
-            local target, lowest = nil, math.huge
-            for _, c in ipairs(map.CoinContainer:GetChildren()) do
-                if c:FindFirstChild("TouchInterest") and c.Position.Y < lowest then
-                    lowest = c.Position.Y
-                    target = c
-                end
-            end
-            if not target then
-                task.wait(0.1)
-                continue
-            end
-            local collected = false
-            cf2UnderCoin(target)
-            local conn = CoinCollected.OnClientEvent:Connect(function(_, cur, max)
-                collected = true
-                if cur == max then cf2Done = true end
-            end)
-            while true do
-                task.wait()
-                task.spawn(function()
-                    local hrp = getHRP()
-                    if hrp then
-                        pcall(firetouchinterest, hrp, target, 0)
-                        pcall(firetouchinterest, hrp, target, 1)
-                    end
-                end)
-                task.wait()
-                noclipSelf()
-                cf2UnderCoin(target)
-                if collected or not target:FindFirstChild("TouchInterest") then break end
-            end
-            conn:Disconnect()
-            cf2ToPlatform()
-            task.wait(2)
-            continue
-        end
-        break
-    end
-    cf2Running = false
-end
-AddConnection(LocalPlayer.CharacterAdded:Connect(function(c)
-    if AF.CoinFarm2.State then
-        c:WaitForChild("HumanoidRootPart", 5)
-        cf2ToPlatform()
-    end
-end))
+do local old = Workspace:FindFirstChild("GhostCF2Platform"); if old then old:Destroy() end end
 
 -- ── Event Farm (attribute coins: Candy / BeachBall / Coin / SnowToken / Egg) ──
 local EF = {
@@ -2364,7 +2285,6 @@ end
 
 -- ── Round start ──
 AddConnection(RoundStartRE.OnClientEvent:Connect(function()
-    task.spawn(cf2Run)
     task.spawn(function()
         if AF.AutoRevealRoles then
             task.wait(1)
@@ -2585,7 +2505,7 @@ HomeTab:Space()
 HomeTab:Paragraph({
     Title = "What's new in v5.0",
     Desc  = [[
-+ Coin Farm 1 (fly), Coin Farm 2 (safe TP under map), Event Farm (Candy / BeachBall / SnowToken / Egg)
++ Halloween Farm (flies to candy), Event Farm (Candy / BeachBall / SnowToken / Egg)
 + Stats overlay, session coins per hour
 + On full bag: kill everyone, fling murderer, teleport under map, or die
 + Round start: kill everyone, fling murderer / sheriff, teleport to lobby
@@ -3032,8 +2952,8 @@ local AutoSection = Window:Section({Title="Automation", Opened=true})
 -- Coin Farm tab
 local FarmTab = AutoSection:Tab({Title="Coin Farm", Icon="dollar-sign"})
 
-local CF1Sub = FarmTab:Section({Title="Coin Farm 1 (Fly)", Opened=true})
-CF1Sub:Toggle({Title="Enable Coin Farm 1", Desc="Flies to the nearest coin with a tween", Flag="CF1Toggle",
+local CF1Sub = FarmTab:Section({Title="Halloween Farm", Opened=true})
+CF1Sub:Toggle({Title="Enable Halloween Farm", Desc="Flies to the nearest candy with a tween", Flag="CF1Toggle",
     Callback=function(v)
         AF.CoinFarm.State = v
         if v then cf1Start() else cf1Stop() end
@@ -3041,13 +2961,6 @@ CF1Sub:Toggle({Title="Enable Coin Farm 1", Desc="Flies to the nearest coin with 
 CF1Sub:Slider({Title="Farm Speed", Desc="Studs per second (above 22.5 may kick)", Flag="CF1Speed",
     Step=0.5, Value={Min=15, Max=25, Default=22.5},
     Callback=function(v) AF.CoinFarm.Speed = v end})
-
-local CF2Sub = FarmTab:Section({Title="Coin Farm 2 (Safe TP)", Opened=true})
-CF2Sub:Toggle({Title="Enable Coin Farm 2", Desc="Waits on a platform under the map and grabs coins from below", Flag="CF2Toggle",
-    Callback=function(v)
-        AF.CoinFarm2.State = v
-        if v then task.spawn(cf2Run) end
-    end})
 
 local EventSub = FarmTab:Section({Title="Event Farm", Opened=true})
 local eventStatsPara = EventSub:Paragraph({Title="Session Progress", Desc=efStatsText()})
