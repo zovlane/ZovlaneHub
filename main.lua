@@ -2492,6 +2492,586 @@ local function inventoryReport(playerName)
 end
 
 -- ============================================================
+-- TABS (our sidebar Section system + Vision Hub tab content)
+-- ============================================================
+
+do
+-- ── HOME ────────────────────────────────────────────────────
+local HomeTab = Window:Tab({Title="Home", Icon="house"})
+HomeTab:Paragraph({
+    Title = "Welcome to Ghost HUB",
+    Desc  = "Halloween Edition v5.0. RightShift opens/closes the menu on PC; on mobile use the Ghost HUB button.",
+})
+HomeTab:Space()
+HomeTab:Paragraph({
+    Title = "What's new in v5.0",
+    Desc  = [[
++ Coin Farm 1 (fly), Coin Farm 2 (safe TP under map), Event Farm (Candy / BeachBall / SnowToken / Egg)
++ Stats overlay, session coins per hour
++ On full bag: kill everyone, fling murderer, teleport under map, or die
++ Round start: kill everyone, fling murderer / sheriff, teleport to lobby
++ Auto shoot murderer with line-of-sight check and movement prediction
++ Kill everyone + bring all players (murderer)
++ Auto pick up gun, trap ESP, reveal roles
++ Fling random player, loop fling all
++ Unlock all emotes, emote spam, shuffle weapons
++ Auto open crates (real crate list), auto prestige, server hop when empty
++ Inventory value analyzer
++ Trade Helper: item values + totals in trades (Supreme or USD), auto offer with min profit
++ Item Spawner: visual-only items and crate animations to troll friends
++ Keybinds are all off until you set them in Settings
++ Mobile open button, window fits your screen
+    ]]
+})
+HomeTab:Space()
+HomeTab:Paragraph({Title="Found a bug?", Desc="Re-execute the script or rejoin."})
+
+end
+do
+-- ── COMBAT SECTION ─────────────────────────────────────────
+local CombatSection = Window:Section({Title="Combat", Opened=true})
+
+-- Combat Tab
+local CombatTab = CombatSection:Tab({Title="Combat", Icon="crosshair"})
+
+local CombatGeneral = CombatTab:Section({Title="General", Opened=true})
+CombatGeneral:Button({Title="Pick Up Gun", Desc="Walks to the dropped gun, grabs it and returns",
+    Icon="hand", Callback=Modules.GrabGun})
+CombatGeneral:Toggle({Title="Auto Pick Up Gun", Desc="Grab the gun as soon as it drops", Flag="AutoGrabGunToggle",
+    Callback=Modules.ToggleAutoGrabGun})
+CombatGeneral:Space()
+CombatGeneral:Toggle({Title="God Mode", Desc="Grants extra lives", Flag="GodModeToggle",
+    Callback=Modules.EnableGodMode})
+CombatGeneral:Toggle({Title="Anti-Fling", Desc="Prevents players from flinging you", Flag="AntiFlingToggle",
+    Callback=Modules.ToggleAntiFling})
+
+local CombatMurdS = CombatTab:Section({Title="Murderer", Opened=true})
+CombatMurdS:Button({Title="Kill Everyone", Desc="Pulls everyone in front of you and slashes",
+    Icon="skull", Callback=function()
+        if Modules.FindMurderer() ~= LocalPlayer then
+            notify("Not the murderer", "You do not have the knife.", "alert-triangle", 4)
+        end
+        task.spawn(killEveryone)
+    end})
+CombatMurdS:Button({Title="Bring All Players", Desc="Teleport every player in front of you",
+    Icon="users", Callback=bringAllPlayers})
+CombatMurdS:Toggle({Title="Auto Kill All", Desc="Keep killing everyone while you have the knife", Flag="AutoKillToggle",
+    Callback=Modules.ToggleAutoKillAll})
+CombatMurdS:Space()
+CombatMurdS:Toggle({Title="Knife Aura", Desc="Kill players within a radius", Flag="KillAuraToggle",
+    Callback=Modules.KillAura})
+CombatMurdS:Slider({Title="Aura Radius", Desc="Detection radius", Flag="AuraRadiusSlider",
+    Value={Min=5,Max=100,Default=10}, Callback=function(v) Modules.Config.AuraRadius=v end})
+CombatMurdS:Space()
+CombatMurdS:Toggle({Title="Auto Knife Throw", Desc="Throws knife at nearest automatically", Flag="ThrowKnifeFlag",
+    Callback=Modules.ToggleSilentThrow})
+CombatMurdS:Button({Title="Throw Knife", Desc="Throw knife at nearest player",
+    Icon="crosshair", Callback=Modules.ExecuteThrowAtNearest})
+
+local CombatSherS = CombatTab:Section({Title="Sheriff", Opened=true})
+CombatSherS:Toggle({Title="Auto Shoot Murderer", Desc="Shoots the murderer whenever you have line of sight", Flag="AutoShootMurderer",
+    Callback=Modules.ToggleAutoShootMurderer})
+CombatSherS:Button({Title="Shoot Murderer", Desc="Fire one predicted shot at the murderer",
+    Icon="crosshair", Callback=Modules.ShootMurdererOnce})
+CombatSherS:Button({Title="Toggle Silent Aim", Desc="Redirects your manual shots to the murderer",
+    Icon="crosshair", Callback=Modules.ShootMurdererSilent})
+
+-- Visuals Tab
+local VisualsTab = CombatSection:Tab({Title="Visuals", Icon="eye"})
+
+-- ESP system (Vision Hub exact — Highlight + BillboardGui)
+local ESP_Folder = CoreGui:FindFirstChild("VisionESP")
+if not ESP_Folder then
+    ESP_Folder = Instance.new("Folder"); ESP_Folder.Name="VisionESP"; ESP_Folder.Parent=CoreGui
+end
+
+local function CreateBillboard(targetHead)
+    local bg = Instance.new("BillboardGui")
+    bg.Name="NameESP"; bg.Adornee=targetHead
+    bg.Size=UDim2.new(0,200,0,50); bg.StudsOffset=Vector3.new(0,3,0); bg.AlwaysOnTop=true
+    local txt=Instance.new("TextLabel"); txt.BackgroundTransparency=1
+    txt.Size=UDim2.new(1,0,1,0); txt.TextSize=16; txt.TextScaled=false
+    txt.Font=Enum.Font.SourceSansBold; txt.TextColor3=Color3.new(1,1,1)
+    txt.TextStrokeTransparency=0; txt.TextStrokeColor3=Color3.new(0,0,0); txt.Parent=bg
+    return bg
+end
+
+local function UpdateESPState()
+    local inMap = getMap() ~= nil  -- true = active round, false = lobby
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= Modules.Player and plr.Character then
+            local char = plr.Character
+            local plrHum = char:FindFirstChildOfClass("Humanoid")
+            local plrAlive = plrHum and plrHum.Health > 0
+
+            -- In a round: only ESP players who are alive in the map.
+            -- In lobby: ESP everyone.
+            local shouldShow = (not inMap) or plrAlive
+
+            if not shouldShow then
+                -- clean up ESP for this player (dead/spectating)
+                local hl = char:FindFirstChild("VisionHighlight"); if hl then hl:Destroy() end
+                local head = char:FindFirstChild("Head")
+                if head then local n=head:FindFirstChild("NameESP"); if n then n:Destroy() end end
+                continue
+            end
+
+            local espColor = Color3.fromRGB(0,255,0); local espRole = "Innocent"
+            local isMurderer = (Modules.FindMurderer()==plr)
+            local isSheriff  = (Modules.FindSheriff()==plr)
+            if Modules.PlayerData[plr.Name] then
+                local d=Modules.PlayerData[plr.Name]
+                if d.Role=="Hero" or d.role=="Hero" then
+                    espColor=Color3.fromRGB(255,255,0); espRole="Hero"
+                end
+            end
+            if isMurderer then espColor=Color3.fromRGB(255,0,0); espRole="Murderer"
+            elseif isSheriff then espColor=Color3.fromRGB(0,0,255); espRole="Sheriff" end
+
+            if Modules.Config.EspPlayers then
+                if not char:FindFirstChild("VisionHighlight") then
+                    local hl=Instance.new("Highlight"); hl.Name="VisionHighlight"
+                    hl.FillTransparency=0.85; hl.OutlineTransparency=0; hl.Parent=char
+                end
+                local hl=char:FindFirstChild("VisionHighlight")
+                if hl then hl.FillColor=espColor; hl.OutlineColor=espColor; hl.Enabled=true end
+            else
+                local hl=char:FindFirstChild("VisionHighlight"); if hl then hl:Destroy() end
+            end
+
+            if Modules.Config.ShowNames then
+                local head=char:FindFirstChild("Head")
+                if head then
+                    if not head:FindFirstChild("NameESP") then
+                        CreateBillboard(head).Parent=head
+                    end
+                    local bg=head:FindFirstChild("NameESP")
+                    local lbl=bg and bg:FindFirstChild("TextLabel")
+                    local root=Modules.RootPart
+                    local er=char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
+                    local dist=(root and er) and math.floor((root.Position-er.Position).Magnitude) or "?"
+                    if lbl then
+                        lbl.Text=string.format("%s\n[%s] [%s studs]", plr.Name, espRole, tostring(dist))
+                        lbl.TextColor3=espColor
+                    end
+                end
+            else
+                local head=char:FindFirstChild("Head")
+                if head then local esp=head:FindFirstChild("NameESP"); if esp then esp:Destroy() end end
+            end
+        end
+    end
+end
+
+local espLoop = nil
+local function ToggleESP_System(enable)
+    if enable then
+        if not espLoop then espLoop=AddConnection(RunService.RenderStepped:Connect(UpdateESPState)) end
+    else
+        if not Modules.Config.EspPlayers and not Modules.Config.ShowNames then
+            if espLoop then espLoop:Disconnect(); espLoop=nil end
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p.Character then
+                    local hl=p.Character:FindFirstChild("VisionHighlight"); if hl then hl:Destroy() end
+                    local head=p.Character:FindFirstChild("Head")
+                    if head then local n=head:FindFirstChild("NameESP"); if n then n:Destroy() end end
+                end
+            end
+        end
+    end
+end
+
+local gunESPConn = nil
+local function RemoveGunESP()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name=="GunDrop" then
+            local h=obj:FindFirstChild("VisionGunHighlight"); if h then h:Destroy() end
+            local b=obj:FindFirstChild("VisionGunLabel"); if b then b:Destroy() end
+        end
+    end
+end
+local function AddGunESP(gun)
+    if not gun or not gun:IsA("BasePart") then return end
+    if gun:FindFirstChild("VisionGunHighlight") then gun.VisionGunHighlight:Destroy() end
+    if gun:FindFirstChild("VisionGunLabel") then gun.VisionGunLabel:Destroy() end
+    local hl=Instance.new("Highlight"); hl.Name="VisionGunHighlight"; hl.Adornee=gun
+    hl.FillColor=Color3.fromRGB(0,255,255); hl.OutlineColor=Color3.fromRGB(255,255,255)
+    hl.FillTransparency=0.5; hl.OutlineTransparency=0; hl.Parent=gun
+    local bg=Instance.new("BillboardGui"); bg.Name="VisionGunLabel"; bg.Adornee=gun
+    bg.Size=UDim2.new(0,150,0,50); bg.StudsOffset=Vector3.new(0,2,0); bg.AlwaysOnTop=true
+    local txt=Instance.new("TextLabel"); txt.BackgroundTransparency=1; txt.Size=UDim2.new(1,0,1,0)
+    txt.TextSize=14; txt.Font=Enum.Font.GothamBold; txt.Text="DROPPED GUN"
+    txt.TextColor3=Color3.fromRGB(0,255,255); txt.TextStrokeTransparency=0
+    txt.TextStrokeColor3=Color3.new(0,0,0); txt.Parent=bg; bg.Parent=gun
+end
+function Modules.ToggleGunESP(enable)
+    Modules.Config.EspDroppedGun=enable
+    if gunESPConn then gunESPConn:Disconnect(); gunESPConn=nil end
+    if enable then
+        for _, v in ipairs(workspace:GetDescendants()) do if v.Name=="GunDrop" then AddGunESP(v) end end
+        gunESPConn=AddConnection(workspace.DescendantAdded:Connect(function(v)
+            if v.Name=="GunDrop" then task.wait(); AddGunESP(v) end
+        end))
+    else RemoveGunESP() end
+end
+
+local VisualsESP = VisualsTab:Section({Title="ESP", Opened=true})
+VisualsESP:Toggle({Title="ESP Players", Desc="Highlight players in round", Flag="EspToggle",
+    Callback=function(v) Modules.Config.EspPlayers=v; ToggleESP_System(v or Modules.Config.ShowNames) end})
+VisualsESP:Toggle({Title="Show Informations", Desc="Show name, role and distance", Flag="ShowNamesToggle",
+    Callback=function(v) Modules.Config.ShowNames=v; ToggleESP_System(v or Modules.Config.EspPlayers) end})
+VisualsESP:Toggle({Title="ESP Dropped Gun", Desc="Highlight gun when dropped", Flag="EspGunToggle",
+    Callback=function(v) Modules.ToggleGunESP(v) end})
+VisualsESP:Space()
+VisualsESP:Toggle({Title="Round Timer", Desc="Show round timer HUD", Flag="RoundTimerToggle",
+    Callback=function(v) Modules.ToggleRoundTimer(v) end})
+VisualsESP:Toggle({Title="Trap ESP", Desc="Highlight traps placed by the murderer", Flag="TrapEspToggle",
+    Callback=setTrapESP})
+
+local VisualsNotify = VisualsTab:Section({Title="Notify", Opened=true})
+VisualsNotify:Toggle({Title="Notify Gun Dropped", Desc="Alert when gun is dropped", Flag="NotifyGunToggle",
+    Callback=function(v) Modules.ToggleNotifyGunDropped(v) end})
+VisualsNotify:Toggle({Title="Notify Murderer", Desc="Alert with picture when Murderer spawns", Flag="NotifyMurdererToggle",
+    Callback=function(v) Modules.Config.NotifyMurderer=v; Modules.UpdateRoleNotify() end})
+VisualsNotify:Toggle({Title="Notify Sheriff", Desc="Alert with picture when Sheriff spawns", Flag="NotifySheriffToggle",
+    Callback=function(v) Modules.Config.NotifySheriff=v; Modules.UpdateRoleNotify() end})
+VisualsNotify:Space()
+VisualsNotify:Button({Title="Reveal Roles", Desc="Show every player's role", Icon="users", Callback=revealRoles})
+VisualsNotify:Toggle({Title="Auto Reveal Roles", Desc="Show roles at the start of every round", Flag="AutoRevealRolesToggle",
+    Callback=function(v) AF.AutoRevealRoles = v end})
+VisualsNotify:Button({Title="Murderer Username", Icon="skull", Callback=function() notifyRoleName("Murderer") end})
+VisualsNotify:Button({Title="Sheriff Username", Icon="shield", Callback=function() notifyRoleName("Sheriff") end})
+
+-- Troll Tab
+local TrollTab = CombatSection:Tab({Title="Troll", Icon="zap"})
+
+-- ── CHAT (first) ───────────────────────────────────────────
+local TrollChat = TrollTab:Section({Title="Chat", Opened=true})
+TrollChat:Button({Title="Expose Roles in Chat", Desc="Say murderer/sheriff names in chat",
+    Icon="message-circle", Callback=Modules.ChatRoles})
+
+do
+    local autoExposeId = 0
+    local _autoExposeRoundConn = nil
+    TrollChat:Toggle({Title="Auto Expose Roles", Desc="Expose roles in chat every round start",
+        Flag="AutoExposeToggle", Value=false,
+        Callback=function(enabled)
+            autoExposeId = autoExposeId + 1
+            -- disconnect previous RoundStart hook
+            if _autoExposeRoundConn then
+                pcall(function() _autoExposeRoundConn:Disconnect() end)
+                _autoExposeRoundConn = nil
+            end
+            if not enabled then return end
+            local myId = autoExposeId
+            -- expose immediately if already mid-round
+            if getMap() ~= nil then
+                task.spawn(function()
+                    task.wait(1)
+                    if autoExposeId == myId then pcall(Modules.ChatRoles) end
+                end)
+            end
+            -- hook the real RoundStart remote — fires reliably every round
+            pcall(function()
+                _autoExposeRoundConn = AddConnection(
+                    ReplicatedStorage.Remotes.Gameplay.RoundStart.OnClientEvent:Connect(function()
+                        if autoExposeId ~= myId then return end
+                        task.spawn(function()
+                            task.wait(4) -- wait for server to assign roles
+                            if autoExposeId == myId then pcall(Modules.ChatRoles) end
+                        end)
+                    end)
+                )
+            end)
+        end})
+end
+
+TrollChat:Space()
+
+local TrollFling = TrollTab:Section({Title="Fling", Opened=true})
+
+local selectedFlingPlayer = nil
+local flingDropdown = TrollFling:Dropdown({
+    Title="Select Player", Desc="Choose a player", Flag="FlingDropdown",
+    Callback=function(opt)
+        selectedFlingPlayer = Players:FindFirstChild(type(opt)=="table" and opt.Title or opt)
+    end,
+})
+local function refreshFlingList()
+    local items={}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p~=Modules.Player then
+            items[#items+1]={Title=p.Name, Icon="rbxthumb://type=AvatarHeadShot&id="..p.UserId.."&w=150&h=150"}
+        end
+    end
+    pcall(function() flingDropdown:Refresh(items) end)
+end
+refreshFlingList()
+AddConnection(Players.PlayerAdded:Connect(refreshFlingList))
+AddConnection(Players.PlayerRemoving:Connect(refreshFlingList))
+
+TrollFling:Button({Title="Fling Player", Desc="Fling selected player", Icon="wind",
+    Callback=function()
+        if selectedFlingPlayer and selectedFlingPlayer.Character then
+            task.spawn(function() SkidFling(selectedFlingPlayer) end)
+        end
+    end})
+TrollFling:Button({Title="Fling All Players", Desc="Fling everyone one by one", Icon="wind",
+    Callback=function()
+        task.spawn(function() miniFling({"all"}) end)
+    end})
+TrollFling:Button({Title="Fling Random Player", Icon="shuffle",
+    Callback=function() task.spawn(flingRandomPlayer) end})
+TrollFling:Toggle({Title="Loop Fling All Players", Desc="Keeps flinging everyone every 2 seconds", Flag="LoopFlingAllToggle",
+    Callback=function(v) AF.LoopFlingAll = v end})
+TrollFling:Space()
+TrollFling:Button({Title="Fling Murderer", Icon="skull",
+    Callback=function()
+        local m=Modules.FindMurderer()
+        if m and m.Character then task.spawn(function() SkidFling(m) end) end
+    end})
+TrollFling:Button({Title="Fling Sheriff", Icon="shield",
+    Callback=function()
+        local s=Modules.FindSheriff()
+        if s and s.Character then task.spawn(function() SkidFling(s) end) end
+    end})
+TrollFling:Button({Title="Fling Hero", Icon="star",
+    Callback=function()
+        local h=Modules.FindHero()
+        if h and h.Character then task.spawn(function() SkidFling(h) end) end
+    end})
+
+local TrollEmotes = TrollTab:Section({Title="Emotes", Opened=true})
+TrollEmotes:Button({Title="Unlock All Emotes", Desc="Adds a Free Emotes page to your emote menu", Icon="lock-open",
+    Callback=unlockAllEmotes})
+TrollEmotes:Dropdown({Title="Select Emote", Desc="Choose emote", Flag="EmoteDropdown",
+    Values=EMOTES, Value=AF.Emotes.Selected,
+    Callback=function(v) AF.Emotes.Selected = v end})
+TrollEmotes:Button({Title="Play Emote", Icon="play",
+    Callback=function() playEmote(AF.Emotes.Selected) end})
+TrollEmotes:Toggle({Title="Spam Selected Emote", Flag="SpamSelectedEmoteToggle",
+    Callback=function(v) AF.Emotes.SpamSelected = v end})
+TrollEmotes:Toggle({Title="Spam Random Emotes", Flag="SpamRandomEmoteToggle",
+    Callback=function(v) AF.Emotes.SpamRandom = v end})
+TrollEmotes:Slider({Title="Random Spam Speed", Desc="Emotes per second", Flag="EmoteSpeedSlider",
+    Value={Min=1, Max=50, Default=1},
+    Callback=function(v) AF.Emotes.Speed = v end})
+
+end
+do
+-- ── MOVEMENT SECTION ───────────────────────────────────────
+local MovSection = Window:Section({Title="Movement", Opened=true})
+
+local PlayerTab = MovSection:Tab({Title="Character", Icon="footprints"})
+local CharSec = PlayerTab:Section({Title="Character", Opened=true})
+CharSec:Toggle({Title="Enable WalkSpeed", Desc="Allow custom speed", Flag="EnableWSToggle",
+    Callback=Modules.EnableWalkSpeed})
+CharSec:Slider({Title="WalkSpeed", Desc="Set your speed", Flag="WSSlider",
+    Value={Min=16,Max=200,Default=16}, Callback=Modules.SetWalkSpeed})
+CharSec:Space()
+CharSec:Toggle({Title="Enable JumpPower", Desc="Allow custom jump", Flag="EnableJPToggle",
+    Callback=Modules.EnableJumpPower})
+CharSec:Slider({Title="Jump Power", Desc="Set your jump", Flag="JPSlider",
+    Value={Min=50,Max=300,Default=50}, Callback=Modules.SetJumpPower})
+CharSec:Space()
+CharSec:Toggle({Title="Noclip", Desc="Walk through walls", Flag="NoclipToggle",
+    Callback=Modules.EnableNoclip})
+CharSec:Toggle({Title="Infinite Jump", Desc="Jump infinitely", Flag="InfJumpToggle",
+    Callback=Modules.InfiniteJump})
+CharSec:Button({Title="Reset Character", Desc="Respawn your character", Icon="refresh-cw",
+    Callback=function()
+        if Modules.Character then Modules.Character:BreakJoints() end
+    end})
+
+local TpTab = MovSection:Tab({Title="Teleports", Icon="map-pin"})
+
+local TpPlayers = TpTab:Section({Title="Players", Opened=true})
+local selectedPlayer = nil
+local playerDropdown = TpPlayers:Dropdown({
+    Title="Select Player", Desc="Choose a player to teleport to",
+    Callback=function(opt)
+        selectedPlayer = Modules.GetPlayerByName(type(opt)=="table" and opt.Title or opt)
+    end,
+})
+local function refreshPlayerList()
+    local items={}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p~=Modules.Player then
+            items[#items+1]={Title=p.Name, Icon="rbxthumb://type=AvatarHeadShot&id="..p.UserId.."&w=150&h=150"}
+        end
+    end
+    pcall(function() playerDropdown:Refresh(items) end)
+end
+refreshPlayerList()
+AddConnection(Players.PlayerAdded:Connect(refreshPlayerList))
+AddConnection(Players.PlayerRemoving:Connect(refreshPlayerList))
+TpPlayers:Button({Title="Teleport to Player", Icon="arrow-right",
+    Callback=function()
+        if selectedPlayer then Modules.TeleportToPlayer(selectedPlayer) end
+    end})
+
+local TpRoles = TpTab:Section({Title="Roles", Opened=true})
+TpRoles:Button({Title="Teleport to Murderer", Icon="skull",
+    Callback=function() local m=Modules.FindMurderer(); if m then Modules.TeleportToPlayer(m) end end})
+TpRoles:Button({Title="Teleport to Sheriff", Icon="shield",
+    Callback=function() local s=Modules.FindSheriff(); if s then Modules.TeleportToPlayer(s) end end})
+TpRoles:Button({Title="Teleport to Hero", Icon="star",
+    Callback=function() local h=Modules.FindHero(); if h then Modules.TeleportToPlayer(h) end end})
+
+local TpLocations = TpTab:Section({Title="Locations", Opened=true})
+TpLocations:Button({Title="Teleport to Lobby", Icon="house", Callback=Modules.TeleportToLobby})
+TpLocations:Button({Title="Teleport to Map", Icon="map", Callback=Modules.TeleportToMap})
+
+end
+do
+-- ── AUTOMATION SECTION ─────────────────────────────────────
+local AutoSection = Window:Section({Title="Automation", Opened=true})
+
+-- Coin Farm tab
+local FarmTab = AutoSection:Tab({Title="Coin Farm", Icon="dollar-sign"})
+
+local CF1Sub = FarmTab:Section({Title="Coin Farm 1 (Fly)", Opened=true})
+CF1Sub:Toggle({Title="Enable Coin Farm 1", Desc="Flies to the nearest coin with a tween", Flag="CF1Toggle",
+    Callback=function(v)
+        AF.CoinFarm.State = v
+        if v then cf1Start() else cf1Stop() end
+    end})
+CF1Sub:Slider({Title="Farm Speed", Desc="Studs per second (above 22.5 may kick)", Flag="CF1Speed",
+    Step=0.5, Value={Min=15, Max=25, Default=22.5},
+    Callback=function(v) AF.CoinFarm.Speed = v end})
+
+local CF2Sub = FarmTab:Section({Title="Coin Farm 2 (Safe TP)", Opened=true})
+CF2Sub:Toggle({Title="Enable Coin Farm 2", Desc="Waits on a platform under the map and grabs coins from below", Flag="CF2Toggle",
+    Callback=function(v)
+        AF.CoinFarm2.State = v
+        if v then task.spawn(cf2Run) end
+    end})
+
+local EventSub = FarmTab:Section({Title="Event Farm", Opened=true})
+local eventStatsPara = EventSub:Paragraph({Title="Session Progress", Desc=efStatsText()})
+task.spawn(function()
+    while eventStatsPara do
+        pcall(function() eventStatsPara:SetDesc(efStatsText()) end)
+        task.wait(0.5)
+    end
+end)
+EventSub:Toggle({Title="Enable Event Farm", Desc="Floats under event coins (Candy, BeachBall, SnowToken, Egg...)", Flag="EventFarmToggle",
+    Callback=function(v) task.spawn(efSetEnabled, v) end})
+EventSub:Dropdown({Title="Coin Types", Desc="Which coins to collect", Flag="EventCoinTypes",
+    Values={"Any","Candy","BeachBall","Coin","SnowToken","Egg"}, Value={"Any"}, Multi=true, AllowNone=true,
+    Callback=function(v)
+        if type(v) ~= "table" then v = {v} end
+        EF.CoinTypes = #v > 0 and v or {"Any"}
+    end})
+EventSub:Dropdown({Title="Teleport Mode", Desc="Under = below the coin, Normal = at the coin", Flag="EventTPMode",
+    Values={"Under","Normal"}, Value="Under",
+    Callback=function(v) EF.Mode = v end})
+EventSub:Slider({Title="Event Farm Speed", Desc="Studs per second (above 22 might kick)", Flag="EventSpeed",
+    Step=0.1, Value={Min=19, Max=26, Default=22.7},
+    Callback=function(v) EF.Speed = v end})
+EventSub:Toggle({Title="Kill All On Full Bag", Desc="Knife required", Flag="EventKillAll",
+    Callback=function(v) EF.KillAllOnFull = v end})
+EventSub:Toggle({Title="Reset On Full Bag", Flag="EventReset",
+    Callback=function(v) EF.ResetOnFullBag = v end})
+EventSub:Toggle({Title="Fling Murderer On Full Bag", Flag="EventFlingMurd",
+    Callback=function(v) EF.FlingMurdererOnFull = v end})
+
+local CoinSettings = FarmTab:Section({Title="Coin Settings", Opened=true})
+CoinSettings:Toggle({Title="Stats Overlay", Desc="Coins collected, total and coins per hour on screen", Flag="StatsOverlayToggle",
+    Callback=function(v) AF.StatsOverlay = v end})
+CoinSettings:Toggle({Title="Destroy Player Models", Flag="DestroyPlayersToggle",
+    Callback=function(v) AF.CoinFarm.DestroyPlayers = v end})
+CoinSettings:Toggle({Title="Destroy Map", Desc="Removes everything except the coins", Flag="DestroyMapToggle",
+    Callback=function(v) AF.CoinFarm.DestroyMap = v end})
+CoinSettings:Toggle({Title="Disable 3D Rendering", Desc="Black screen, lowers CPU usage", Flag="Disable3DToggle",
+    Callback=function(v) set3DRendering(not v) end})
+CoinSettings:Button({Title="Teleport Under Map", Desc="Go to the safe spot now", Icon="arrow-down",
+    Callback=function() task.spawn(teleportUnderMap) end})
+
+local BagFullSub = FarmTab:Section({Title="On Full Bag", Opened=true})
+BagFullSub:Toggle({Title="Kill Everyone (Murderer)", Flag="KillAtBagToggle",
+    Callback=function(v) AF.AutoFarm.KillAtFullBag = v end})
+BagFullSub:Toggle({Title="Fling Murderer", Flag="FlingAtBagToggle",
+    Callback=function(v) AF.AutoFarm.FlingMurdererAtFullBag = v end})
+BagFullSub:Toggle({Title="Teleport Under Map", Flag="TpUnderAtBagToggle",
+    Callback=function(v) AF.AutoFarm.TeleportUnderMap = v end})
+BagFullSub:Toggle({Title="Die", Desc="Reset your character", Flag="DieAtBagToggle",
+    Callback=function(v) AF.CoinFarm.DieAtFullBag = v end})
+
+local FarmXPSub = FarmTab:Section({Title="XP Farm", Opened=true})
+FarmXPSub:Toggle({Title="Enable XP Farm", Desc="Every 1.5s: teleports behind murderer and fires your tool", Flag="XPFarmToggle",
+    Callback=function(v) AF.XPFarm = v end})
+FarmXPSub:Toggle({Title="Anti AFK", Desc="Prevents kick on idle", Flag="AntiAFKToggle",
+    Callback=applyAntiAFK})
+
+-- Auto Farm tab
+local AutoFarmTab = AutoSection:Tab({Title="Auto Farm", Icon="repeat"})
+local RoundSub = AutoFarmTab:Section({Title="Round Start", Opened=true})
+RoundSub:Toggle({Title="Teleport To Lobby Spawn", Desc="When the round starts", Flag="AutoTPSpawnToggle",
+    Callback=function(v) AF.AutoFarm.TeleportSpawn = v end})
+RoundSub:Toggle({Title="Kill Everyone As Murderer", Flag="KillOnStartToggle",
+    Callback=function(v) AF.AutoFarm.KillEveryone = v end})
+RoundSub:Toggle({Title="Fling Murderer", Flag="FlingMurdOnStartToggle",
+    Callback=function(v) AF.AutoFarm.AutoFlingMurderer = v end})
+RoundSub:Toggle({Title="Fling Sheriff", Flag="FlingSheriOnStartToggle",
+    Callback=function(v) AF.AutoFarm.AutoFlingSheriff = v end})
+
+local ServerAutoSub = AutoFarmTab:Section({Title="Server & Progress", Opened=true})
+ServerAutoSub:Toggle({Title="Auto Prestige", Desc="Tries to prestige every 30 seconds", Flag="AutoPrestigeToggle",
+    Callback=function(v) AF.AutoFarm.AutoPrestige = v end})
+ServerAutoSub:Toggle({Title="Server Hop If Empty", Desc="Hop when players drop below the threshold", Flag="AutoHopEmptyToggle",
+    Callback=function(v) AF.AutoFarm.AutoServerHop = v end})
+ServerAutoSub:Slider({Title="Player Threshold", Flag="HopThresholdSlider",
+    Value={Min=1, Max=12, Default=2},
+    Callback=function(v) AF.AutoFarm.PlayersToServerHop = v end})
+
+-- Misc tab
+local MiscTab = AutoSection:Tab({Title="Misc", Icon="box"})
+local CrateSub = MiscTab:Section({Title="Auto Open Crates", Opened=true})
+CrateSub:Toggle({Title="Auto Open Crates", Desc="Opens the chosen box every 0.5s", Flag="AutoCratesToggle",
+    Callback=function(v) AF.AutoOpenCrates.State = v end})
+if #CRATES > 0 then
+    CrateSub:Dropdown({Title="Choose Box", Flag="CrateDropdown",
+        Values=CRATES, Value=AF.AutoOpenCrates.Crate,
+        Callback=selectCrate})
+end
+
+local WeaponSub = MiscTab:Section({Title="Skins", Opened=true})
+WeaponSub:Toggle({Title="Shuffle Weapons", Desc="Rapidly equips random weapons you own", Flag="ShuffleWeaponsToggle",
+    Callback=function(v) AF.ShuffleWeapons = v end})
+
+local InvSub = MiscTab:Section({Title="Inventory Value", Opened=true})
+local invPara = InvSub:Paragraph({Title="Your Inventory", Desc="Press Analyze."})
+local invBusy = false
+InvSub:Button({Title="Analyze Inventory", Icon="bar-chart",
+    Callback=function()
+        if invBusy then return end
+        invBusy = true
+        pcall(function() invPara:SetDesc("Collecting data...") end)
+        task.spawn(function()
+            local ok, report = pcall(inventoryReport, LocalPlayer.Name)
+            pcall(function() invPara:SetDesc(ok and report or "Failed to fetch inventory.") end)
+            invBusy = false
+        end)
+    end})
+InvSub:Button({Title="Copy Report", Icon="copy",
+    Callback=function()
+        task.spawn(function()
+            local ok, report = pcall(inventoryReport, LocalPlayer.Name)
+            if ok and setclipboard then
+                setclipboard(report)
+                notify("Copied", "Inventory report copied to clipboard.", "check-circle", 3)
+            end
+        end)
+    end})
+
+local ToolsSub = MiscTab:Section({Title="Tools", Opened=true})
+ToolsSub:Button({Title="Fly GUI", Desc="Loads Fly GUI V3", Icon="plane", Callback=openFlyGui})
+
+end
+do
+-- ============================================================
 -- TRADE HELPER (values from pastefy / USD) + ITEM SPAWNER (visual only)
 -- ============================================================
 local ItemDB = {}
@@ -2825,577 +3405,6 @@ local function openCrateVisual(id)
     spawnItem(id, 1)
 end
 
--- ============================================================
--- TABS (our sidebar Section system + Vision Hub tab content)
--- ============================================================
-
--- ── HOME ────────────────────────────────────────────────────
-local HomeTab = Window:Tab({Title="Home", Icon="house"})
-HomeTab:Paragraph({
-    Title = "Welcome to Ghost HUB",
-    Desc  = "Halloween Edition v5.0. RightShift opens/closes the menu on PC; on mobile use the Ghost HUB button.",
-})
-HomeTab:Space()
-HomeTab:Paragraph({
-    Title = "What's new in v5.0",
-    Desc  = [[
-+ Coin Farm 1 (fly), Coin Farm 2 (safe TP under map), Event Farm (Candy / BeachBall / SnowToken / Egg)
-+ Stats overlay, session coins per hour
-+ On full bag: kill everyone, fling murderer, teleport under map, or die
-+ Round start: kill everyone, fling murderer / sheriff, teleport to lobby
-+ Auto shoot murderer with line-of-sight check and movement prediction
-+ Kill everyone + bring all players (murderer)
-+ Auto pick up gun, trap ESP, reveal roles
-+ Fling random player, loop fling all
-+ Unlock all emotes, emote spam, shuffle weapons
-+ Auto open crates (real crate list), auto prestige, server hop when empty
-+ Inventory value analyzer
-+ Trade Helper: item values + totals in trades (Supreme or USD), auto offer with min profit
-+ Item Spawner: visual-only items and crate animations to troll friends
-+ Keybinds are all off until you set them in Settings
-+ Mobile open button, window fits your screen
-    ]]
-})
-HomeTab:Space()
-HomeTab:Paragraph({Title="Found a bug?", Desc="Re-execute the script or rejoin."})
-
--- ── COMBAT SECTION ─────────────────────────────────────────
-local CombatSection = Window:Section({Title="Combat", Opened=true})
-
--- Combat Tab
-local CombatTab = CombatSection:Tab({Title="Combat", Icon="crosshair"})
-
-local CombatGeneral = CombatTab:Section({Title="General", Opened=true})
-CombatGeneral:Button({Title="Pick Up Gun", Desc="Walks to the dropped gun, grabs it and returns",
-    Icon="hand", Callback=Modules.GrabGun})
-CombatGeneral:Toggle({Title="Auto Pick Up Gun", Desc="Grab the gun as soon as it drops", Flag="AutoGrabGunToggle",
-    Callback=Modules.ToggleAutoGrabGun})
-CombatGeneral:Space()
-CombatGeneral:Toggle({Title="God Mode", Desc="Grants extra lives", Flag="GodModeToggle",
-    Callback=Modules.EnableGodMode})
-CombatGeneral:Toggle({Title="Anti-Fling", Desc="Prevents players from flinging you", Flag="AntiFlingToggle",
-    Callback=Modules.ToggleAntiFling})
-
-local CombatMurdS = CombatTab:Section({Title="Murderer", Opened=true})
-CombatMurdS:Button({Title="Kill Everyone", Desc="Pulls everyone in front of you and slashes",
-    Icon="skull", Callback=function()
-        if Modules.FindMurderer() ~= LocalPlayer then
-            notify("Not the murderer", "You do not have the knife.", "alert-triangle", 4)
-        end
-        task.spawn(killEveryone)
-    end})
-CombatMurdS:Button({Title="Bring All Players", Desc="Teleport every player in front of you",
-    Icon="users", Callback=bringAllPlayers})
-CombatMurdS:Toggle({Title="Auto Kill All", Desc="Keep killing everyone while you have the knife", Flag="AutoKillToggle",
-    Callback=Modules.ToggleAutoKillAll})
-CombatMurdS:Space()
-CombatMurdS:Toggle({Title="Knife Aura", Desc="Kill players within a radius", Flag="KillAuraToggle",
-    Callback=Modules.KillAura})
-CombatMurdS:Slider({Title="Aura Radius", Desc="Detection radius", Flag="AuraRadiusSlider",
-    Value={Min=5,Max=100,Default=10}, Callback=function(v) Modules.Config.AuraRadius=v end})
-CombatMurdS:Space()
-CombatMurdS:Toggle({Title="Auto Knife Throw", Desc="Throws knife at nearest automatically", Flag="ThrowKnifeFlag",
-    Callback=Modules.ToggleSilentThrow})
-CombatMurdS:Button({Title="Throw Knife", Desc="Throw knife at nearest player",
-    Icon="crosshair", Callback=Modules.ExecuteThrowAtNearest})
-
-local CombatSherS = CombatTab:Section({Title="Sheriff", Opened=true})
-CombatSherS:Toggle({Title="Auto Shoot Murderer", Desc="Shoots the murderer whenever you have line of sight", Flag="AutoShootMurderer",
-    Callback=Modules.ToggleAutoShootMurderer})
-CombatSherS:Button({Title="Shoot Murderer", Desc="Fire one predicted shot at the murderer",
-    Icon="crosshair", Callback=Modules.ShootMurdererOnce})
-CombatSherS:Button({Title="Toggle Silent Aim", Desc="Redirects your manual shots to the murderer",
-    Icon="crosshair", Callback=Modules.ShootMurdererSilent})
-
--- Visuals Tab
-local VisualsTab = CombatSection:Tab({Title="Visuals", Icon="eye"})
-
--- ESP system (Vision Hub exact — Highlight + BillboardGui)
-local ESP_Folder = CoreGui:FindFirstChild("VisionESP")
-if not ESP_Folder then
-    ESP_Folder = Instance.new("Folder"); ESP_Folder.Name="VisionESP"; ESP_Folder.Parent=CoreGui
-end
-
-local function CreateBillboard(targetHead)
-    local bg = Instance.new("BillboardGui")
-    bg.Name="NameESP"; bg.Adornee=targetHead
-    bg.Size=UDim2.new(0,200,0,50); bg.StudsOffset=Vector3.new(0,3,0); bg.AlwaysOnTop=true
-    local txt=Instance.new("TextLabel"); txt.BackgroundTransparency=1
-    txt.Size=UDim2.new(1,0,1,0); txt.TextSize=16; txt.TextScaled=false
-    txt.Font=Enum.Font.SourceSansBold; txt.TextColor3=Color3.new(1,1,1)
-    txt.TextStrokeTransparency=0; txt.TextStrokeColor3=Color3.new(0,0,0); txt.Parent=bg
-    return bg
-end
-
-local function UpdateESPState()
-    local inMap = getMap() ~= nil  -- true = active round, false = lobby
-
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= Modules.Player and plr.Character then
-            local char = plr.Character
-            local plrHum = char:FindFirstChildOfClass("Humanoid")
-            local plrAlive = plrHum and plrHum.Health > 0
-
-            -- In a round: only ESP players who are alive in the map.
-            -- In lobby: ESP everyone.
-            local shouldShow = (not inMap) or plrAlive
-
-            if not shouldShow then
-                -- clean up ESP for this player (dead/spectating)
-                local hl = char:FindFirstChild("VisionHighlight"); if hl then hl:Destroy() end
-                local head = char:FindFirstChild("Head")
-                if head then local n=head:FindFirstChild("NameESP"); if n then n:Destroy() end end
-                continue
-            end
-
-            local espColor = Color3.fromRGB(0,255,0); local espRole = "Innocent"
-            local isMurderer = (Modules.FindMurderer()==plr)
-            local isSheriff  = (Modules.FindSheriff()==plr)
-            if Modules.PlayerData[plr.Name] then
-                local d=Modules.PlayerData[plr.Name]
-                if d.Role=="Hero" or d.role=="Hero" then
-                    espColor=Color3.fromRGB(255,255,0); espRole="Hero"
-                end
-            end
-            if isMurderer then espColor=Color3.fromRGB(255,0,0); espRole="Murderer"
-            elseif isSheriff then espColor=Color3.fromRGB(0,0,255); espRole="Sheriff" end
-
-            if Modules.Config.EspPlayers then
-                if not char:FindFirstChild("VisionHighlight") then
-                    local hl=Instance.new("Highlight"); hl.Name="VisionHighlight"
-                    hl.FillTransparency=0.85; hl.OutlineTransparency=0; hl.Parent=char
-                end
-                local hl=char:FindFirstChild("VisionHighlight")
-                if hl then hl.FillColor=espColor; hl.OutlineColor=espColor; hl.Enabled=true end
-            else
-                local hl=char:FindFirstChild("VisionHighlight"); if hl then hl:Destroy() end
-            end
-
-            if Modules.Config.ShowNames then
-                local head=char:FindFirstChild("Head")
-                if head then
-                    if not head:FindFirstChild("NameESP") then
-                        CreateBillboard(head).Parent=head
-                    end
-                    local bg=head:FindFirstChild("NameESP")
-                    local lbl=bg and bg:FindFirstChild("TextLabel")
-                    local root=Modules.RootPart
-                    local er=char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
-                    local dist=(root and er) and math.floor((root.Position-er.Position).Magnitude) or "?"
-                    if lbl then
-                        lbl.Text=string.format("%s\n[%s] [%s studs]", plr.Name, espRole, tostring(dist))
-                        lbl.TextColor3=espColor
-                    end
-                end
-            else
-                local head=char:FindFirstChild("Head")
-                if head then local esp=head:FindFirstChild("NameESP"); if esp then esp:Destroy() end end
-            end
-        end
-    end
-end
-
-local espLoop = nil
-local function ToggleESP_System(enable)
-    if enable then
-        if not espLoop then espLoop=AddConnection(RunService.RenderStepped:Connect(UpdateESPState)) end
-    else
-        if not Modules.Config.EspPlayers and not Modules.Config.ShowNames then
-            if espLoop then espLoop:Disconnect(); espLoop=nil end
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p.Character then
-                    local hl=p.Character:FindFirstChild("VisionHighlight"); if hl then hl:Destroy() end
-                    local head=p.Character:FindFirstChild("Head")
-                    if head then local n=head:FindFirstChild("NameESP"); if n then n:Destroy() end end
-                end
-            end
-        end
-    end
-end
-
-local gunESPConn = nil
-local function RemoveGunESP()
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name=="GunDrop" then
-            local h=obj:FindFirstChild("VisionGunHighlight"); if h then h:Destroy() end
-            local b=obj:FindFirstChild("VisionGunLabel"); if b then b:Destroy() end
-        end
-    end
-end
-local function AddGunESP(gun)
-    if not gun or not gun:IsA("BasePart") then return end
-    if gun:FindFirstChild("VisionGunHighlight") then gun.VisionGunHighlight:Destroy() end
-    if gun:FindFirstChild("VisionGunLabel") then gun.VisionGunLabel:Destroy() end
-    local hl=Instance.new("Highlight"); hl.Name="VisionGunHighlight"; hl.Adornee=gun
-    hl.FillColor=Color3.fromRGB(0,255,255); hl.OutlineColor=Color3.fromRGB(255,255,255)
-    hl.FillTransparency=0.5; hl.OutlineTransparency=0; hl.Parent=gun
-    local bg=Instance.new("BillboardGui"); bg.Name="VisionGunLabel"; bg.Adornee=gun
-    bg.Size=UDim2.new(0,150,0,50); bg.StudsOffset=Vector3.new(0,2,0); bg.AlwaysOnTop=true
-    local txt=Instance.new("TextLabel"); txt.BackgroundTransparency=1; txt.Size=UDim2.new(1,0,1,0)
-    txt.TextSize=14; txt.Font=Enum.Font.GothamBold; txt.Text="DROPPED GUN"
-    txt.TextColor3=Color3.fromRGB(0,255,255); txt.TextStrokeTransparency=0
-    txt.TextStrokeColor3=Color3.new(0,0,0); txt.Parent=bg; bg.Parent=gun
-end
-function Modules.ToggleGunESP(enable)
-    Modules.Config.EspDroppedGun=enable
-    if gunESPConn then gunESPConn:Disconnect(); gunESPConn=nil end
-    if enable then
-        for _, v in ipairs(workspace:GetDescendants()) do if v.Name=="GunDrop" then AddGunESP(v) end end
-        gunESPConn=AddConnection(workspace.DescendantAdded:Connect(function(v)
-            if v.Name=="GunDrop" then task.wait(); AddGunESP(v) end
-        end))
-    else RemoveGunESP() end
-end
-
-local VisualsESP = VisualsTab:Section({Title="ESP", Opened=true})
-VisualsESP:Toggle({Title="ESP Players", Desc="Highlight players in round", Flag="EspToggle",
-    Callback=function(v) Modules.Config.EspPlayers=v; ToggleESP_System(v or Modules.Config.ShowNames) end})
-VisualsESP:Toggle({Title="Show Informations", Desc="Show name, role and distance", Flag="ShowNamesToggle",
-    Callback=function(v) Modules.Config.ShowNames=v; ToggleESP_System(v or Modules.Config.EspPlayers) end})
-VisualsESP:Toggle({Title="ESP Dropped Gun", Desc="Highlight gun when dropped", Flag="EspGunToggle",
-    Callback=function(v) Modules.ToggleGunESP(v) end})
-VisualsESP:Space()
-VisualsESP:Toggle({Title="Round Timer", Desc="Show round timer HUD", Flag="RoundTimerToggle",
-    Callback=function(v) Modules.ToggleRoundTimer(v) end})
-VisualsESP:Toggle({Title="Trap ESP", Desc="Highlight traps placed by the murderer", Flag="TrapEspToggle",
-    Callback=setTrapESP})
-
-local VisualsNotify = VisualsTab:Section({Title="Notify", Opened=true})
-VisualsNotify:Toggle({Title="Notify Gun Dropped", Desc="Alert when gun is dropped", Flag="NotifyGunToggle",
-    Callback=function(v) Modules.ToggleNotifyGunDropped(v) end})
-VisualsNotify:Toggle({Title="Notify Murderer", Desc="Alert with picture when Murderer spawns", Flag="NotifyMurdererToggle",
-    Callback=function(v) Modules.Config.NotifyMurderer=v; Modules.UpdateRoleNotify() end})
-VisualsNotify:Toggle({Title="Notify Sheriff", Desc="Alert with picture when Sheriff spawns", Flag="NotifySheriffToggle",
-    Callback=function(v) Modules.Config.NotifySheriff=v; Modules.UpdateRoleNotify() end})
-VisualsNotify:Space()
-VisualsNotify:Button({Title="Reveal Roles", Desc="Show every player's role", Icon="users", Callback=revealRoles})
-VisualsNotify:Toggle({Title="Auto Reveal Roles", Desc="Show roles at the start of every round", Flag="AutoRevealRolesToggle",
-    Callback=function(v) AF.AutoRevealRoles = v end})
-VisualsNotify:Button({Title="Murderer Username", Icon="skull", Callback=function() notifyRoleName("Murderer") end})
-VisualsNotify:Button({Title="Sheriff Username", Icon="shield", Callback=function() notifyRoleName("Sheriff") end})
-
--- Troll Tab
-local TrollTab = CombatSection:Tab({Title="Troll", Icon="zap"})
-
--- ── CHAT (first) ───────────────────────────────────────────
-local TrollChat = TrollTab:Section({Title="Chat", Opened=true})
-TrollChat:Button({Title="Expose Roles in Chat", Desc="Say murderer/sheriff names in chat",
-    Icon="message-circle", Callback=Modules.ChatRoles})
-
-do
-    local autoExposeId = 0
-    local _autoExposeRoundConn = nil
-    TrollChat:Toggle({Title="Auto Expose Roles", Desc="Expose roles in chat every round start",
-        Flag="AutoExposeToggle", Value=false,
-        Callback=function(enabled)
-            autoExposeId = autoExposeId + 1
-            -- disconnect previous RoundStart hook
-            if _autoExposeRoundConn then
-                pcall(function() _autoExposeRoundConn:Disconnect() end)
-                _autoExposeRoundConn = nil
-            end
-            if not enabled then return end
-            local myId = autoExposeId
-            -- expose immediately if already mid-round
-            if getMap() ~= nil then
-                task.spawn(function()
-                    task.wait(1)
-                    if autoExposeId == myId then pcall(Modules.ChatRoles) end
-                end)
-            end
-            -- hook the real RoundStart remote — fires reliably every round
-            pcall(function()
-                _autoExposeRoundConn = AddConnection(
-                    ReplicatedStorage.Remotes.Gameplay.RoundStart.OnClientEvent:Connect(function()
-                        if autoExposeId ~= myId then return end
-                        task.spawn(function()
-                            task.wait(4) -- wait for server to assign roles
-                            if autoExposeId == myId then pcall(Modules.ChatRoles) end
-                        end)
-                    end)
-                )
-            end)
-        end})
-end
-
-TrollChat:Space()
-
-local TrollFling = TrollTab:Section({Title="Fling", Opened=true})
-
-local selectedFlingPlayer = nil
-local flingDropdown = TrollFling:Dropdown({
-    Title="Select Player", Desc="Choose a player", Flag="FlingDropdown",
-    Callback=function(opt)
-        selectedFlingPlayer = Players:FindFirstChild(type(opt)=="table" and opt.Title or opt)
-    end,
-})
-local function refreshFlingList()
-    local items={}
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p~=Modules.Player then
-            items[#items+1]={Title=p.Name, Icon="rbxthumb://type=AvatarHeadShot&id="..p.UserId.."&w=150&h=150"}
-        end
-    end
-    pcall(function() flingDropdown:Refresh(items) end)
-end
-refreshFlingList()
-AddConnection(Players.PlayerAdded:Connect(refreshFlingList))
-AddConnection(Players.PlayerRemoving:Connect(refreshFlingList))
-
-TrollFling:Button({Title="Fling Player", Desc="Fling selected player", Icon="wind",
-    Callback=function()
-        if selectedFlingPlayer and selectedFlingPlayer.Character then
-            task.spawn(function() SkidFling(selectedFlingPlayer) end)
-        end
-    end})
-TrollFling:Button({Title="Fling All Players", Desc="Fling everyone one by one", Icon="wind",
-    Callback=function()
-        task.spawn(function() miniFling({"all"}) end)
-    end})
-TrollFling:Button({Title="Fling Random Player", Icon="shuffle",
-    Callback=function() task.spawn(flingRandomPlayer) end})
-TrollFling:Toggle({Title="Loop Fling All Players", Desc="Keeps flinging everyone every 2 seconds", Flag="LoopFlingAllToggle",
-    Callback=function(v) AF.LoopFlingAll = v end})
-TrollFling:Space()
-TrollFling:Button({Title="Fling Murderer", Icon="skull",
-    Callback=function()
-        local m=Modules.FindMurderer()
-        if m and m.Character then task.spawn(function() SkidFling(m) end) end
-    end})
-TrollFling:Button({Title="Fling Sheriff", Icon="shield",
-    Callback=function()
-        local s=Modules.FindSheriff()
-        if s and s.Character then task.spawn(function() SkidFling(s) end) end
-    end})
-TrollFling:Button({Title="Fling Hero", Icon="star",
-    Callback=function()
-        local h=Modules.FindHero()
-        if h and h.Character then task.spawn(function() SkidFling(h) end) end
-    end})
-
-local TrollEmotes = TrollTab:Section({Title="Emotes", Opened=true})
-TrollEmotes:Button({Title="Unlock All Emotes", Desc="Adds a Free Emotes page to your emote menu", Icon="lock-open",
-    Callback=unlockAllEmotes})
-TrollEmotes:Dropdown({Title="Select Emote", Desc="Choose emote", Flag="EmoteDropdown",
-    Values=EMOTES, Value=AF.Emotes.Selected,
-    Callback=function(v) AF.Emotes.Selected = v end})
-TrollEmotes:Button({Title="Play Emote", Icon="play",
-    Callback=function() playEmote(AF.Emotes.Selected) end})
-TrollEmotes:Toggle({Title="Spam Selected Emote", Flag="SpamSelectedEmoteToggle",
-    Callback=function(v) AF.Emotes.SpamSelected = v end})
-TrollEmotes:Toggle({Title="Spam Random Emotes", Flag="SpamRandomEmoteToggle",
-    Callback=function(v) AF.Emotes.SpamRandom = v end})
-TrollEmotes:Slider({Title="Random Spam Speed", Desc="Emotes per second", Flag="EmoteSpeedSlider",
-    Value={Min=1, Max=50, Default=1},
-    Callback=function(v) AF.Emotes.Speed = v end})
-
--- ── MOVEMENT SECTION ───────────────────────────────────────
-local MovSection = Window:Section({Title="Movement", Opened=true})
-
-local PlayerTab = MovSection:Tab({Title="Character", Icon="footprints"})
-local CharSec = PlayerTab:Section({Title="Character", Opened=true})
-CharSec:Toggle({Title="Enable WalkSpeed", Desc="Allow custom speed", Flag="EnableWSToggle",
-    Callback=Modules.EnableWalkSpeed})
-CharSec:Slider({Title="WalkSpeed", Desc="Set your speed", Flag="WSSlider",
-    Value={Min=16,Max=200,Default=16}, Callback=Modules.SetWalkSpeed})
-CharSec:Space()
-CharSec:Toggle({Title="Enable JumpPower", Desc="Allow custom jump", Flag="EnableJPToggle",
-    Callback=Modules.EnableJumpPower})
-CharSec:Slider({Title="Jump Power", Desc="Set your jump", Flag="JPSlider",
-    Value={Min=50,Max=300,Default=50}, Callback=Modules.SetJumpPower})
-CharSec:Space()
-CharSec:Toggle({Title="Noclip", Desc="Walk through walls", Flag="NoclipToggle",
-    Callback=Modules.EnableNoclip})
-CharSec:Toggle({Title="Infinite Jump", Desc="Jump infinitely", Flag="InfJumpToggle",
-    Callback=Modules.InfiniteJump})
-CharSec:Button({Title="Reset Character", Desc="Respawn your character", Icon="refresh-cw",
-    Callback=function()
-        if Modules.Character then Modules.Character:BreakJoints() end
-    end})
-
-local TpTab = MovSection:Tab({Title="Teleports", Icon="map-pin"})
-
-local TpPlayers = TpTab:Section({Title="Players", Opened=true})
-local selectedPlayer = nil
-local playerDropdown = TpPlayers:Dropdown({
-    Title="Select Player", Desc="Choose a player to teleport to",
-    Callback=function(opt)
-        selectedPlayer = Modules.GetPlayerByName(type(opt)=="table" and opt.Title or opt)
-    end,
-})
-local function refreshPlayerList()
-    local items={}
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p~=Modules.Player then
-            items[#items+1]={Title=p.Name, Icon="rbxthumb://type=AvatarHeadShot&id="..p.UserId.."&w=150&h=150"}
-        end
-    end
-    pcall(function() playerDropdown:Refresh(items) end)
-end
-refreshPlayerList()
-AddConnection(Players.PlayerAdded:Connect(refreshPlayerList))
-AddConnection(Players.PlayerRemoving:Connect(refreshPlayerList))
-TpPlayers:Button({Title="Teleport to Player", Icon="arrow-right",
-    Callback=function()
-        if selectedPlayer then Modules.TeleportToPlayer(selectedPlayer) end
-    end})
-
-local TpRoles = TpTab:Section({Title="Roles", Opened=true})
-TpRoles:Button({Title="Teleport to Murderer", Icon="skull",
-    Callback=function() local m=Modules.FindMurderer(); if m then Modules.TeleportToPlayer(m) end end})
-TpRoles:Button({Title="Teleport to Sheriff", Icon="shield",
-    Callback=function() local s=Modules.FindSheriff(); if s then Modules.TeleportToPlayer(s) end end})
-TpRoles:Button({Title="Teleport to Hero", Icon="star",
-    Callback=function() local h=Modules.FindHero(); if h then Modules.TeleportToPlayer(h) end end})
-
-local TpLocations = TpTab:Section({Title="Locations", Opened=true})
-TpLocations:Button({Title="Teleport to Lobby", Icon="house", Callback=Modules.TeleportToLobby})
-TpLocations:Button({Title="Teleport to Map", Icon="map", Callback=Modules.TeleportToMap})
-
--- ── AUTOMATION SECTION ─────────────────────────────────────
-local AutoSection = Window:Section({Title="Automation", Opened=true})
-
--- Coin Farm tab
-local FarmTab = AutoSection:Tab({Title="Coin Farm", Icon="dollar-sign"})
-
-local CF1Sub = FarmTab:Section({Title="Coin Farm 1 (Fly)", Opened=true})
-CF1Sub:Toggle({Title="Enable Coin Farm 1", Desc="Flies to the nearest coin with a tween", Flag="CF1Toggle",
-    Callback=function(v)
-        AF.CoinFarm.State = v
-        if v then cf1Start() else cf1Stop() end
-    end})
-CF1Sub:Slider({Title="Farm Speed", Desc="Studs per second (above 22.5 may kick)", Flag="CF1Speed",
-    Step=0.5, Value={Min=15, Max=25, Default=22.5},
-    Callback=function(v) AF.CoinFarm.Speed = v end})
-
-local CF2Sub = FarmTab:Section({Title="Coin Farm 2 (Safe TP)", Opened=true})
-CF2Sub:Toggle({Title="Enable Coin Farm 2", Desc="Waits on a platform under the map and grabs coins from below", Flag="CF2Toggle",
-    Callback=function(v)
-        AF.CoinFarm2.State = v
-        if v then task.spawn(cf2Run) end
-    end})
-
-local EventSub = FarmTab:Section({Title="Event Farm", Opened=true})
-local eventStatsPara = EventSub:Paragraph({Title="Session Progress", Desc=efStatsText()})
-task.spawn(function()
-    while eventStatsPara do
-        pcall(function() eventStatsPara:SetDesc(efStatsText()) end)
-        task.wait(0.5)
-    end
-end)
-EventSub:Toggle({Title="Enable Event Farm", Desc="Floats under event coins (Candy, BeachBall, SnowToken, Egg...)", Flag="EventFarmToggle",
-    Callback=function(v) task.spawn(efSetEnabled, v) end})
-EventSub:Dropdown({Title="Coin Types", Desc="Which coins to collect", Flag="EventCoinTypes",
-    Values={"Any","Candy","BeachBall","Coin","SnowToken","Egg"}, Value={"Any"}, Multi=true, AllowNone=true,
-    Callback=function(v)
-        if type(v) ~= "table" then v = {v} end
-        EF.CoinTypes = #v > 0 and v or {"Any"}
-    end})
-EventSub:Dropdown({Title="Teleport Mode", Desc="Under = below the coin, Normal = at the coin", Flag="EventTPMode",
-    Values={"Under","Normal"}, Value="Under",
-    Callback=function(v) EF.Mode = v end})
-EventSub:Slider({Title="Event Farm Speed", Desc="Studs per second (above 22 might kick)", Flag="EventSpeed",
-    Step=0.1, Value={Min=19, Max=26, Default=22.7},
-    Callback=function(v) EF.Speed = v end})
-EventSub:Toggle({Title="Kill All On Full Bag", Desc="Knife required", Flag="EventKillAll",
-    Callback=function(v) EF.KillAllOnFull = v end})
-EventSub:Toggle({Title="Reset On Full Bag", Flag="EventReset",
-    Callback=function(v) EF.ResetOnFullBag = v end})
-EventSub:Toggle({Title="Fling Murderer On Full Bag", Flag="EventFlingMurd",
-    Callback=function(v) EF.FlingMurdererOnFull = v end})
-
-local CoinSettings = FarmTab:Section({Title="Coin Settings", Opened=true})
-CoinSettings:Toggle({Title="Stats Overlay", Desc="Coins collected, total and coins per hour on screen", Flag="StatsOverlayToggle",
-    Callback=function(v) AF.StatsOverlay = v end})
-CoinSettings:Toggle({Title="Destroy Player Models", Flag="DestroyPlayersToggle",
-    Callback=function(v) AF.CoinFarm.DestroyPlayers = v end})
-CoinSettings:Toggle({Title="Destroy Map", Desc="Removes everything except the coins", Flag="DestroyMapToggle",
-    Callback=function(v) AF.CoinFarm.DestroyMap = v end})
-CoinSettings:Toggle({Title="Disable 3D Rendering", Desc="Black screen, lowers CPU usage", Flag="Disable3DToggle",
-    Callback=function(v) set3DRendering(not v) end})
-CoinSettings:Button({Title="Teleport Under Map", Desc="Go to the safe spot now", Icon="arrow-down",
-    Callback=function() task.spawn(teleportUnderMap) end})
-
-local BagFullSub = FarmTab:Section({Title="On Full Bag", Opened=true})
-BagFullSub:Toggle({Title="Kill Everyone (Murderer)", Flag="KillAtBagToggle",
-    Callback=function(v) AF.AutoFarm.KillAtFullBag = v end})
-BagFullSub:Toggle({Title="Fling Murderer", Flag="FlingAtBagToggle",
-    Callback=function(v) AF.AutoFarm.FlingMurdererAtFullBag = v end})
-BagFullSub:Toggle({Title="Teleport Under Map", Flag="TpUnderAtBagToggle",
-    Callback=function(v) AF.AutoFarm.TeleportUnderMap = v end})
-BagFullSub:Toggle({Title="Die", Desc="Reset your character", Flag="DieAtBagToggle",
-    Callback=function(v) AF.CoinFarm.DieAtFullBag = v end})
-
-local FarmXPSub = FarmTab:Section({Title="XP Farm", Opened=true})
-FarmXPSub:Toggle({Title="Enable XP Farm", Desc="Every 1.5s: teleports behind murderer and fires your tool", Flag="XPFarmToggle",
-    Callback=function(v) AF.XPFarm = v end})
-FarmXPSub:Toggle({Title="Anti AFK", Desc="Prevents kick on idle", Flag="AntiAFKToggle",
-    Callback=applyAntiAFK})
-
--- Auto Farm tab
-local AutoFarmTab = AutoSection:Tab({Title="Auto Farm", Icon="repeat"})
-local RoundSub = AutoFarmTab:Section({Title="Round Start", Opened=true})
-RoundSub:Toggle({Title="Teleport To Lobby Spawn", Desc="When the round starts", Flag="AutoTPSpawnToggle",
-    Callback=function(v) AF.AutoFarm.TeleportSpawn = v end})
-RoundSub:Toggle({Title="Kill Everyone As Murderer", Flag="KillOnStartToggle",
-    Callback=function(v) AF.AutoFarm.KillEveryone = v end})
-RoundSub:Toggle({Title="Fling Murderer", Flag="FlingMurdOnStartToggle",
-    Callback=function(v) AF.AutoFarm.AutoFlingMurderer = v end})
-RoundSub:Toggle({Title="Fling Sheriff", Flag="FlingSheriOnStartToggle",
-    Callback=function(v) AF.AutoFarm.AutoFlingSheriff = v end})
-
-local ServerAutoSub = AutoFarmTab:Section({Title="Server & Progress", Opened=true})
-ServerAutoSub:Toggle({Title="Auto Prestige", Desc="Tries to prestige every 30 seconds", Flag="AutoPrestigeToggle",
-    Callback=function(v) AF.AutoFarm.AutoPrestige = v end})
-ServerAutoSub:Toggle({Title="Server Hop If Empty", Desc="Hop when players drop below the threshold", Flag="AutoHopEmptyToggle",
-    Callback=function(v) AF.AutoFarm.AutoServerHop = v end})
-ServerAutoSub:Slider({Title="Player Threshold", Flag="HopThresholdSlider",
-    Value={Min=1, Max=12, Default=2},
-    Callback=function(v) AF.AutoFarm.PlayersToServerHop = v end})
-
--- Misc tab
-local MiscTab = AutoSection:Tab({Title="Misc", Icon="box"})
-local CrateSub = MiscTab:Section({Title="Auto Open Crates", Opened=true})
-CrateSub:Toggle({Title="Auto Open Crates", Desc="Opens the chosen box every 0.5s", Flag="AutoCratesToggle",
-    Callback=function(v) AF.AutoOpenCrates.State = v end})
-if #CRATES > 0 then
-    CrateSub:Dropdown({Title="Choose Box", Flag="CrateDropdown",
-        Values=CRATES, Value=AF.AutoOpenCrates.Crate,
-        Callback=selectCrate})
-end
-
-local WeaponSub = MiscTab:Section({Title="Skins", Opened=true})
-WeaponSub:Toggle({Title="Shuffle Weapons", Desc="Rapidly equips random weapons you own", Flag="ShuffleWeaponsToggle",
-    Callback=function(v) AF.ShuffleWeapons = v end})
-
-local InvSub = MiscTab:Section({Title="Inventory Value", Opened=true})
-local invPara = InvSub:Paragraph({Title="Your Inventory", Desc="Press Analyze."})
-local invBusy = false
-InvSub:Button({Title="Analyze Inventory", Icon="bar-chart",
-    Callback=function()
-        if invBusy then return end
-        invBusy = true
-        pcall(function() invPara:SetDesc("Collecting data...") end)
-        task.spawn(function()
-            local ok, report = pcall(inventoryReport, LocalPlayer.Name)
-            pcall(function() invPara:SetDesc(ok and report or "Failed to fetch inventory.") end)
-            invBusy = false
-        end)
-    end})
-InvSub:Button({Title="Copy Report", Icon="copy",
-    Callback=function()
-        task.spawn(function()
-            local ok, report = pcall(inventoryReport, LocalPlayer.Name)
-            if ok and setclipboard then
-                setclipboard(report)
-                notify("Copied", "Inventory report copied to clipboard.", "check-circle", 3)
-            end
-        end)
-    end})
-
-local ToolsSub = MiscTab:Section({Title="Tools", Opened=true})
-ToolsSub:Button({Title="Fly GUI", Desc="Loads Fly GUI V3", Icon="plane", Callback=openFlyGui})
-
 -- ── TRADING SECTION ────────────────────────────────────────
 local TradingSection = Window:Section({Title="Trading", Opened=true})
 
@@ -3483,6 +3492,8 @@ SpawnSub:Button({Title="Open In Crate", Desc="Plays the crate opening animation 
         end)
     end})
 
+end
+do
 -- ── BUTTONS TAB (Vision Hub exact — standalone) ────────────
 local ButtonsTab = Window:Tab({Title="Buttons", Icon="square-mouse-pointer"})
 local BtnSub = ButtonsTab:Section({Title="Mobile Buttons", Subtitle="Customize your action buttons",
@@ -3552,6 +3563,8 @@ BtnSub:Toggle({Title="Show Teleport Lobby Button", Desc="Teleport back to lobby"
         Modules.CreateGuiButton("TeleportLobby",{Enabled=v,Type="Text",Text="Teleport to Lobby"},Modules.TeleportToLobby)
     end})
 
+end
+do
 -- ── SETTINGS TAB (standalone — Vision Hub Config/Theme + our border) ──
 local SettTab = Window:Tab({Title="Settings", Icon="settings"})
 
@@ -3663,6 +3676,7 @@ ServerSub:Toggle({Title="Queue on Teleport", Desc="Executes script automatically
     Flag="AutoQueueToggle", Value=true,
     Callback=function(v) Modules.Config.AutoQueue=v end})
 
+end
 -- ============================================================
 -- SELECT FIRST TAB (Vision Hub pattern)
 -- ============================================================
