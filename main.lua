@@ -43,7 +43,7 @@ for _, gui in ipairs(CoreGui:GetChildren()) do
     or gui.Name == "MM2HubTimer" or gui.Name == "MM2HubLoad"
     or gui.Name == "MM2HubMobile" or gui.Name:sub(1,9) == "VisionBtn"
     or gui.Name == "VisionESP"   or gui.Name == "VisionTimerGUI"
-    or gui.Name == "MM2HubCrosshair" then
+    or gui.Name == "MM2HubCrosshair" or gui.Name == "GhostStatsOverlay" then
         pcall(function() gui:Destroy() end)
     end
 end
@@ -92,6 +92,10 @@ local function AddConnection(conn)
     table.insert(t, conn)
     return conn
 end
+
+local _borderStroke   = nil
+local borderColor     = Color3.fromRGB(255, 115, 0)
+local borderThickness = 3
 
 -- ============================================================
 -- LOADING WINDUI
@@ -1383,423 +1387,1109 @@ local isMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- ============================================================
 -- WINDOW (our styling — MAC buttons, gradient open button)
 -- ============================================================
-local _borderStroke  = nil
-local borderColor    = Color3.fromRGB(255, 115, 0)
-local borderThickness= 5
-
 -- avatar as topbar icon
 local _avatarIcon = "rbxthumb://type=AvatarHeadShot&id="..LocalPlayer.UserId.."&w=150&h=150"
 
+local function fittedWindowSize()
+    local cam = workspace.CurrentCamera
+    local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+    local w = math.clamp(math.floor(vp.X * 0.9), 300, 580)
+    local h = math.clamp(math.floor(vp.Y * 0.8), 240, 460)
+    return UDim2.fromOffset(w, h)
+end
+
 local Window = WindUI:CreateWindow({
-    Title   = " Ghost HUB",
-    Author  = " halloween · v5.0",
+    Title   = "Ghost HUB",
+    Author  = "Halloween Edition · v5.0",
     Folder  = "GhostHubV5",
     Icon    = _avatarIcon,
-    Size    = isMobile and UDim2.new(0,280,0,380) or UDim2.new(0,620,0,680),
+    Size    = fittedWindowSize(),
     Transparent   = false,
     Theme         = "Dark",
     NewElements   = true,
-    SideBarWidth  = isMobile and 110 or 200,
+    SideBarWidth  = isMobile and 130 or 180,
     HideSearchBar = false,
     User    = { Enabled=false, Anonymous=false },
-    Topbar  = { Height=52, ButtonsType="Mac" },
+    Topbar  = { Height=46, ButtonsType="Mac" },
+    OpenButton = {
+        Title           = "Ghost HUB",
+        Icon            = "ghost",
+        Enabled         = true,
+        OnlyMobile      = true,
+        Draggable       = true,
+        CornerRadius    = UDim.new(1, 0),
+        StrokeThickness = 2,
+        Color           = ColorSequence.new(Color3.fromRGB(255, 115, 0), Color3.fromRGB(150, 60, 255)),
+    },
 })
 
 Window.ConfigManager:CreateConfig("Default")
-pcall(function() Window:SetToggleKey(Enum.KeyCode.G) end)
 
 -- ============================================================
---  CANDY HARVEST — FARM / AUTOMATION SYSTEM
+-- AUTOFARM (ported from Project Reverse MM2 AutoFarm)
 -- ============================================================
-local FarmConfig = {
-    -- Coin Farm
-    CoinEnabled       = false,
-    CoinSpeed         = 22,
-    CoinInstantTP     = false,
-    CoinFarmV2        = false,  -- firetouchinterest instant collection
-    AutoFlingOnDone   = false,
-    -- Bag Full Actions
-    KillAtBag         = false,
-    FlingAtBag        = false,
-    TeleportUnderAtBag= false,
-    DieAtBag          = false,
-    -- Other
-    XPFarmEnabled     = false,
-    AntiAFKEnabled    = false,
-    AutoPrestige      = false,
-    AutoOpenCrates    = false,
-    CrateName         = "Classic",
-    CrateType         = "Normal",
-    AutoServerHopEmpty= false,
-    ServerHopThreshold= 2,
-    EmoteSpam         = false,
-    EmoteSpamSpeed    = 1,
-    SelectedEmote     = "zombie",
-    ShuffleWeapons    = false,
-    KillOnStart       = false,
-    FlingMurdOnStart  = false,
-    FlingSheriOnStart = false,
+local Workspace     = workspace
+local Lighting      = game:GetService("Lighting")
+local GameRemotes   = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay")
+local CoinCollected = GameRemotes:WaitForChild("CoinCollected")
+local RoundStartRE  = GameRemotes:WaitForChild("RoundStart")
+
+local AF = {
+    AutoRevealRoles = false,
+    StatsOverlay    = false,
+    TrapESP         = false,
+    AutoPickUpGun   = false,
+    AutoShooting    = false,
+    LoopFlingAll    = false,
+    ShuffleWeapons  = false,
+    XPFarm          = false,
+    CoinFarm  = { State=false, Speed=22.5, DestroyMap=false, DestroyPlayers=false, DieAtFullBag=false },
+    CoinFarm2 = { State=false },
+    AutoFarm  = {
+        TeleportSpawn=false, KillEveryone=false, AutoFlingMurderer=false, AutoFlingSheriff=false,
+        AutoPrestige=false, KillAtFullBag=false, TeleportUnderMap=false, FlingMurdererAtFullBag=false,
+        AutoServerHop=false, PlayersToServerHop=2,
+    },
+    AutoOpenCrates = { State=false, Crate="MysteryBox1", CrateType="MysteryBox" },
+    Emotes = { Selected="zen", SpamRandom=false, SpamSelected=false, Speed=1 },
 }
-local _farmFlingCooldown = 0
-local _antiAFKConn       = nil
-local _bagFullHandled    = false
 
--- ── Coin helpers (AutoFarm v1 method: TouchInterest check) ──
-local function getCoins()
-    local coins = {}
-    for _, child in ipairs(workspace:GetChildren()) do
-        local container = child:FindFirstChild("CoinContainer")
-        if container then
-            for _, obj in ipairs(container:GetChildren()) do
-                if obj.Name == "Coin_Server" and obj:IsA("BasePart") and obj.Parent
-                    and not obj:FindFirstChild("CollectedCoin")
-                    and obj:FindFirstChild("TouchInterest") then
-                    table.insert(coins, obj)
-                end
-            end
-        end
-    end
-    if #coins == 0 then
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if (obj.Name == "Coin" or obj.Name == "Coin_Server")
-                and obj:IsA("BasePart") and obj.Parent then
-                table.insert(coins, obj)
-            end
-        end
-    end
-    return coins
-end
-
-local function getNearestCoin(from)
-    local best, bestDist = nil, math.huge
-    for _, c in ipairs(getCoins()) do
-        local d = (c.Position - from).Magnitude
-        if d < bestDist then bestDist = d; best = c end
-    end
-    return best, bestDist
-end
-
-local function isBagFull()
-    local ok, full = pcall(function()
-        local gui = LocalPlayer:FindFirstChildWhichIsA("PlayerGui", true)
-        if not gui then return false end
-        local bag = gui:FindFirstChild("Bag", true)
-        if bag then
-            local indicator = bag:FindFirstChild("Full", true) or bag:FindFirstChild("FullBagIcon", true)
-            if indicator then return indicator.Visible end
-        end
-        -- AutoFarm method: Game.CoinBags.Container.Candy.Full.Visible
-        local cb = workspace:FindFirstChild("Game")
-        if cb then
-            local c = cb:FindFirstChild("CoinBags")
-            if c then
-                local cont = c:FindFirstChild("Container")
-                if cont then
-                    local candy = cont:FindFirstChild("Candy")
-                    if candy then
-                        local f = candy:FindFirstChild("Full")
-                        if f and f:IsA("GuiObject") then return f.Visible end
-                    end
-                end
-            end
-        end
-        return false
+local function notify(title, content, icon, duration)
+    pcall(function()
+        WindUI:Notify({Title=title, Content=content, Icon=icon or "info", Duration=duration or 4})
     end)
-    return ok and full
+end
+local function getHum()
+    local c = LocalPlayer.Character
+    return c and c:FindFirstChildOfClass("Humanoid")
+end
+local function getHRP()
+    local c = LocalPlayer.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+local function noclipSelf()
+    local c = LocalPlayer.Character
+    if not c then return end
+    for _, d in ipairs(c:GetDescendants()) do
+        if d:IsA("BasePart") and d.CanCollide then d.CanCollide = false end
+    end
+end
+local function getRoundMap()
+    for _, c in ipairs(Workspace:GetChildren()) do
+        if c:FindFirstChild("CoinContainer") and c:FindFirstChild("Spawns") then return c end
+    end
+end
+local function getCoinMap()
+    for _, c in ipairs(Workspace:GetChildren()) do
+        if c:FindFirstChild("CoinContainer") then return c end
+    end
+end
+-- returns (coin bag UI visible, bag full)
+local function bagState()
+    local mg = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
+    local g = mg and mg:FindFirstChild("Game")
+    local bags = g and g:FindFirstChild("CoinBags")
+    if not bags then return false, false end
+    local full = false
+    local cont = bags:FindFirstChild("Container")
+    if cont then
+        for _, b in ipairs(cont:GetChildren()) do
+            local f = b:FindFirstChild("Full")
+            if f and f:IsA("GuiObject") and f.Visible then full = true; break end
+        end
+    end
+    return bags.Visible, full
+end
+local function set3DRendering(on)
+    pcall(function() RunService:Set3dRenderingEnabled(on) end)
 end
 
--- ── Safe spot teleport (AutoFarm v2 safe spot) ──
-local function teleportToSafeSpot()
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+-- ── Stats overlay ──
+local statTotal, statBag, statMax, statStart = 0, 0, 40, tick()
+local statGui = Instance.new("ScreenGui")
+statGui.Name = "GhostStatsOverlay"; statGui.ResetOnSpawn = false; statGui.IgnoreGuiInset = true
+pcall(function() statGui.Parent = CoreGui end)
+if not statGui.Parent then statGui.Parent = LocalPlayer.PlayerGui end
+local statLabel = Instance.new("TextLabel")
+statLabel.Visible = false
+statLabel.Size = UDim2.new(0.5, 0, 0.1, 0)
+statLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+statLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+statLabel.BackgroundTransparency = 1
+statLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+statLabel.TextStrokeColor3 = Color3.fromRGB(255, 115, 0)
+statLabel.TextStrokeTransparency = 0.35
+statLabel.Font = Enum.Font.SourceSansBold
+statLabel.TextSize = 42
+statLabel.Parent = statGui
+AddConnection(CoinCollected.OnClientEvent:Connect(function(_, cur, max)
+    statTotal += 1
+    statBag = tonumber(cur) or statBag
+    statMax = tonumber(max) or statMax
+end))
+AddConnection(RunService.RenderStepped:Connect(function()
+    statLabel.Visible = AF.StatsOverlay
+    if not AF.StatsOverlay then return end
+    local perHour = math.floor(statTotal * 3600 / math.max(tick() - statStart, 1))
+    statLabel.Text = string.format("Coins Collected: %d/%d\nTotal Coins: %d\nCoins Per Hour: %d", statBag, statMax, statTotal, perHour)
+end))
+
+-- ── Teleport under map (safe spot) ──
+local function teleportUnderMap()
+    local hrp = getHRP()
     if not hrp then return end
-    if workspace:FindFirstChild("GhostSafeSpot") then
+    if Workspace:FindFirstChild("safespot") then
         hrp.CFrame = CFrame.new(-106, 87.5, 2)
-    else
-        local Part = Instance.new("Part")
-        Part.Name = "GhostSafeSpot"; Part.Size = Vector3.new(25, 3, 25)
-        Part.Position = Vector3.new(-106, 83, 2); Part.Parent = workspace
-        Part.Anchored = true; Part.CanCollide = true; Part.Transparency = 0
-        task.wait()
-        for i = 1, 3 do
-            local h2 = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if not h2 then return end
-            h2.CFrame = CFrame.new(-106, 87.5, 2)
-            task.wait(0.1)
-        end
+        return
+    end
+    local p = Instance.new("Part")
+    p.Name = "safespot"; p.Size = Vector3.new(25, 3, 25); p.Position = Vector3.new(-106, 83, 2)
+    p.Anchored = true; p.CanCollide = true; p.Transparency = 0; p.Parent = Workspace
+    task.wait()
+    for _ = 1, 3 do
+        local h = getHRP()
+        if not h then return end
+        h.CFrame = CFrame.new(-106, 87.5, 2)
+        task.wait(0.1)
     end
 end
 
--- ── Kill All Anchor (AutoFarm method: anchor HRP + Stab:FireServer) ──
-local function killAllAnchor()
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not char or not hum then return end
-    if not char:FindFirstChild("Knife") then
-        local knife = LocalPlayer.Backpack and LocalPlayer.Backpack:FindFirstChild("Knife")
-        if not knife then return end
-        hum:EquipTool(knife)
+-- ── Emotes ──
+local EMOTES = {"sit","ninja","dab","zen","floss","headless","zombie","wave","cheer","laugh"}
+local function playEmote(name)
+    pcall(function() ReplicatedStorage.Remotes.Misc.PlayEmote:Fire(name) end)
+end
+Modules.PlayEmote = playEmote
+task.spawn(function()
+    while true do
+        task.wait(1 / math.max(AF.Emotes.Speed, 1))
+        if AF.Emotes.SpamRandom then playEmote(EMOTES[math.random(1, #EMOTES)]) end
     end
-    local myHRP = char:FindFirstChild("HumanoidRootPart")
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local HRP = player.Character:FindFirstChild("HumanoidRootPart")
-            if HRP and myHRP then
-                HRP.Anchored = true
-                HRP.CFrame = myHRP.CFrame + myHRP.CFrame.LookVector * 1
+end)
+
+local freeEmotesRunning = false
+local function unlockAllEmotes()
+    local mg = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
+    local g = mg and mg:FindFirstChild("Game")
+    local emotesUI = g and g:FindFirstChild("Emotes")
+    local hum = getHum()
+    if not emotesUI or not getHRP() or not hum or hum.Health <= 0 then
+        notify("Not ready", "Wait for the game to finish loading.", "alert-triangle", 3)
+        return
+    end
+    pcall(function() ReplicatedStorage.Remotes.Extras.GetPlayerData:InvokeServer("GetData") end)
+    local mod = ReplicatedStorage.Modules:FindFirstChild("EmoteModule")
+    if not mod then return end
+    local list = {"headless","zombie","zen","ninja","floss","dab","sit"}
+    pcall(function() require(mod).GeneratePage(list, emotesUI, "Free Emotes") end)
+    notify("Emotes", "Free emotes page added to your emote menu.", "smile", 3)
+    if freeEmotesRunning then return end
+    freeEmotesRunning = true
+    task.spawn(function()
+        while emotesUI.Parent do
+            local pages = emotesUI:FindFirstChild("EmotePages")
+            if pages and not pages:FindFirstChild("Free Emotes") then
+                pcall(function() require(mod).GeneratePage(list, emotesUI, "Free Emotes") end)
             end
+            task.wait(0.2)
         end
-    end
-    pcall(function() char.Knife.Stab:FireServer("Slash") end)
+        freeEmotesRunning = false
+    end)
 end
 
--- ── Destroy map except coins ──
-local function destroyMapExceptCoins()
-    for _, child in pairs(workspace:GetChildren()) do
-        if child:IsA("Model") and child:FindFirstChild("CoinContainer") then
-            for _, child2 in pairs(child:GetChildren()) do
-                if child2.Name ~= "CoinContainer" then pcall(function() child2:Destroy() end) end
-            end
-        end
-    end
-end
-
--- ── Destroy other players from workspace ──
+-- ── Destroy helpers ──
 local function destroyOtherPlayers()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            local char2 = workspace:FindFirstChild(player.Name)
-            if char2 then pcall(function() char2:Destroy() end) end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            local m = Workspace:FindFirstChild(p.Name)
+            if m then m:Destroy() end
+        end
+    end
+end
+local function destroyMapExceptCoins()
+    for _, c in ipairs(Workspace:GetChildren()) do
+        if c:IsA("Model") and c:FindFirstChild("CoinContainer") then
+            for _, c2 in ipairs(c:GetChildren()) do
+                if c2.Name ~= "CoinContainer" then c2:Destroy() end
+            end
         end
     end
 end
 
 -- ── Shuffle weapons ──
-local function shuffleWeapons()
-    local weapons = {}
-    pcall(function()
-        local result = require(ReplicatedStorage.Modules.InventoryModule).MyInventory.Data.Weapons
-        for _, v in pairs(result) do
-            for k in pairs(v) do table.insert(weapons, k) end
-        end
+local function randomOwnedWeapon()
+    local ok, weapons = pcall(function()
+        return require(ReplicatedStorage.Modules.InventoryModule).MyInventory.Data.Weapons
     end)
-    if #weapons == 0 then return end
-    local randomWeapon = weapons[math.random(1, #weapons)]
-    pcall(function() ReplicatedStorage.Remotes.Inventory.Equip:FireServer(randomWeapon, "Weapons") end)
+    if not ok or not weapons then return nil end
+    local list = {}
+    for _, cat in pairs(weapons) do
+        for k in pairs(cat) do table.insert(list, k) end
+    end
+    if #list == 0 then return nil end
+    return list[math.random(1, #list)]
 end
 
-local function flingMurdererFarm()
-    local now = tick()
-    if now - _farmFlingCooldown < 8 then return end
-    _farmFlingCooldown = now
-    local m = Modules.FindMurderer()
-    if m and m ~= LocalPlayer then
-        task.spawn(function() miniFling({m.Name}) end)
+local lastShuffle = 0
+AddConnection(RunService.Stepped:Connect(function()
+    if AF.Emotes.SpamSelected then playEmote(AF.Emotes.Selected) end
+    if AF.ShuffleWeapons and tick() - lastShuffle > 0.1 then
+        lastShuffle = tick()
+        local w = randomOwnedWeapon()
+        if w then
+            pcall(function() ReplicatedStorage.Remotes.Inventory.Equip:FireServer(w, "Weapons") end)
+        end
+    end
+    if AF.CoinFarm.DestroyPlayers then destroyOtherPlayers() end
+end))
+AddConnection(RunService.Heartbeat:Connect(function()
+    if AF.CoinFarm.DestroyMap then destroyMapExceptCoins() end
+end))
+
+-- ── Kill everyone (anchor + slash) ──
+local function killEveryone()
+    local char = LocalPlayer.Character
+    if not char then return end
+    if not char:FindFirstChild("Knife") then
+        local bp = LocalPlayer:FindFirstChild("Backpack")
+        local knife = bp and bp:FindFirstChild("Knife")
+        if not knife then return end
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then hum:EquipTool(knife) end
+    end
+    local myHRP = char:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.Anchored = true
+                hrp.CFrame = myHRP.CFrame + myHRP.CFrame.LookVector * 1
+            end
+        end
+    end
+    pcall(function() LocalPlayer.Character.Knife.Stab:FireServer("Slash") end)
+end
+Modules.KillAll = killEveryone
+
+local function bringAllPlayers()
+    if Modules.FindMurderer() ~= LocalPlayer then
+        notify("Not the murderer", "This is only useful when you are the murderer.", "alert-triangle", 4)
+        return
+    end
+    local myHRP = getHRP()
+    if not myHRP then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.Anchored = true
+                hrp.CFrame = myHRP.CFrame + myHRP.CFrame.LookVector * 5
+            end
+        end
+    end
+    notify("Teleported Everyone", "All players moved to your position.", "check-circle", 3)
+end
+
+-- ── Teleports (MoveTo method) ──
+local oldTeleportToLobby = Modules.TeleportToLobby
+Modules.TeleportToLobby = function()
+    local lobby = Workspace:FindFirstChild("Lobby")
+    if lobby and LocalPlayer.Character then
+        LocalPlayer.Character:MoveTo(lobby.WorldPivot.Position)
+    else
+        oldTeleportToLobby()
+    end
+end
+local oldTeleportToMap = Modules.TeleportToMap
+Modules.TeleportToMap = function()
+    local map = getRoundMap()
+    local spawns = map and map:FindFirstChild("Spawns")
+    if not spawns then return oldTeleportToMap() end
+    local list = spawns:GetChildren()
+    if #list > 0 and LocalPlayer.Character then
+        LocalPlayer.Character:MoveTo(list[math.random(1, #list)].Position)
     end
 end
 
-local function applyAntiAFK(enabled)
-    if _antiAFKConn then _antiAFKConn:Disconnect(); _antiAFKConn = nil end
-    if enabled then
-        _antiAFKConn = LocalPlayer.Idled:Connect(function()
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new())
+-- ── Pick up gun (walk to drop, wait for gun, return) ──
+local function pickUpGun()
+    local map = getRoundMap()
+    local drop = map and map:FindFirstChild("GunDrop")
+    if not drop then return end
+    if Modules.FindMurderer() == LocalPlayer then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local pivot = char:GetPivot()
+    char:MoveTo(drop.Position)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local t0 = tick()
+    while not (bp and bp:FindFirstChild("Gun")) and tick() - t0 < 2 do task.wait() end
+    char:PivotTo(pivot)
+end
+Modules.GrabGun = function() task.spawn(pickUpGun) end
+Modules.ToggleAutoGrabGun = function(v)
+    Modules.Config.AutoGrabGun = v
+    AF.AutoPickUpGun = v
+    if v then task.spawn(pickUpGun) end
+end
+
+-- ── Trap ESP + auto pick up gun on drop ──
+local trapTemplate = Instance.new("Highlight")
+trapTemplate.Name = "TrapESP"
+trapTemplate.OutlineTransparency = 1
+trapTemplate.FillColor = Color3.fromRGB(255, 0, 0)
+trapTemplate.FillTransparency = 0.4
+trapTemplate.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+local function addTrapESP(d)
+    if not (d.Parent and d.Parent:IsDescendantOf(Workspace)) then return end
+    pcall(function() d.Transparency = 0 end)
+    local h = trapTemplate:Clone()
+    h.Adornee = d
+    h.Parent = Workspace
+end
+local function setTrapESP(on)
+    AF.TrapESP = on
+    if on then
+        for _, d in ipairs(Workspace:GetDescendants()) do
+            if d.Name == "Trap" then addTrapESP(d) end
+        end
+    else
+        for _, c in ipairs(Workspace:GetChildren()) do
+            if c.Name == "TrapESP" and c:IsA("Highlight") then c:Destroy() end
+        end
+    end
+end
+AddConnection(Workspace.DescendantAdded:Connect(function(d)
+    if AF.TrapESP and d.Name == "Trap" then addTrapESP(d) end
+    if AF.AutoPickUpGun and d.Name == "GunDrop" then
+        task.wait(0.5)
+        for _ = 1, 5 do pickUpGun() end
+    end
+end))
+
+-- ── Auto shoot murderer (raycast + KnifeLocal.CreateBeam "AH2") ──
+local function shootMurdererAH2()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local gun = char:FindFirstChild("Gun") or (bp and bp:FindFirstChild("Gun"))
+    if not gun then return end
+    local hum = getHum()
+    if hum and gun.Parent == bp then hum:EquipTool(gun) end
+    local m = Modules.FindMurderer()
+    if not m or not m.Character then return end
+    local torso = m.Character:FindFirstChild("UpperTorso")
+    local mHum = m.Character:FindFirstChild("Humanoid")
+    if not torso or not mHum then return end
+    local aim = torso.Position + torso.AssemblyLinearVelocity * Vector3.new(0, 0.5, 0) * 0.14 + mHum.MoveDirection * 2.8
+    pcall(function()
+        local g = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Gun")
+        if g then g.KnifeLocal.CreateBeam.RemoteFunction:InvokeServer(1, aim, "AH2") end
+    end)
+end
+AddConnection(RunService.RenderStepped:Connect(function()
+    if not AF.AutoShooting or Modules.FindSheriff() ~= LocalPlayer then return end
+    local m = Modules.FindMurderer()
+    if not m or not m.Character then return end
+    local mHRP = m.Character:FindFirstChild("HumanoidRootPart")
+    local myHRP = getHRP()
+    if not mHRP or not myHRP then return end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {LocalPlayer.Character}
+    local hit = Workspace:Raycast(myHRP.Position, mHRP.Position - myHRP.Position, params)
+    if not hit or hit.Instance.Parent == m.Character then shootMurdererAH2() end
+end))
+Modules.ToggleAutoShootMurderer = function(v)
+    Modules.Config.AutoShootMurderer = v
+    AF.AutoShooting = v
+end
+Modules.ShootMurdererOnce = function() task.spawn(shootMurdererAH2) end
+
+-- ── Fling extras ──
+local function otherPlayers()
+    local list = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then table.insert(list, p) end
+    end
+    return list
+end
+local function flingRandomPlayer()
+    local list = otherPlayers()
+    if #list == 0 then
+        notify("No target", "There are no other players in the server.", "alert-triangle", 3)
+        return
+    end
+    miniFling({list[math.random(#list)].Name})
+end
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if AF.LoopFlingAll then
+            for _, p in ipairs(otherPlayers()) do
+                if not AF.LoopFlingAll then break end
+                pcall(miniFling, {p.Name})
+                task.wait(0.1)
+            end
+        end
+    end
+end)
+
+-- ── Roles ──
+local function revealRoles()
+    local data = Modules.PlayerData
+    if type(data) ~= "table" or next(data) == nil then
+        notify("No data", "Player data has not loaded yet.", "alert-triangle", 3)
+        return
+    end
+    local lines = {}
+    for name, d in pairs(data) do
+        table.insert(lines, string.format("%s - %s", name, tostring(type(d) == "table" and d.Role or "?")))
+    end
+    notify("Roles", table.concat(lines, "\n"), "users", 8)
+end
+local function notifyRoleName(role)
+    local p = role == "Murderer" and Modules.FindMurderer() or Modules.FindSheriff()
+    if p then
+        notify(role .. " Username", p.Name, "user", 5)
+    else
+        notify(role, "Not found.", "alert-triangle", 3)
+    end
+end
+
+-- ── Coin Farm 1 (fly / tween to nearest coin) ──
+local function findNearestCoin()
+    local hrp = getHRP()
+    if not hrp then return end
+    local best, bestDist = nil, 100
+    for _, m in ipairs(Workspace:GetChildren()) do
+        if m:IsA("Model") and m:FindFirstChild("CoinContainer") then
+            for _, c in ipairs(m.CoinContainer:GetChildren()) do
+                if c.Name == "Coin_Server" and not c:FindFirstChild("CollectedCoin") and c:FindFirstChild("TouchInterest") then
+                    local d = (hrp.Position - c.Position).Magnitude
+                    if d < bestDist then best, bestDist = c, d end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local cf1Conns = {}
+local function cf1Stop()
+    for _, c in ipairs(cf1Conns) do pcall(function() c:Disconnect() end) end
+    table.clear(cf1Conns)
+    local hrp = getHRP()
+    if hrp then
+        hrp.Anchored = false
+        local bv = hrp:FindFirstChild("MM2_CoinFarmVelocity")
+        if bv then bv:Destroy() end
+    end
+end
+local function cf1Step()
+    if not AF.CoinFarm.State then return end
+    local visible, full = bagState()
+    local hrp = getHRP()
+    if not (visible and not full and hrp) then return end
+    if not hrp:FindFirstChild("MM2_CoinFarmVelocity") then
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+        bv.Name = "MM2_CoinFarmVelocity"
+        bv.Parent = hrp
+    end
+    noclipSelf()
+    local coin = findNearestCoin()
+    if coin then
+        hrp.Anchored = false
+        task.spawn(function()
+            local h = getHRP()
+            if not h then return end
+            local t = (h.Position - coin.Position).Magnitude / AF.CoinFarm.Speed
+            TweenService:Create(h, TweenInfo.new(t, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
+                CFrame = CFrame.new(coin.Position + Vector3.new(0, -1, 0))
+            }):Play()
+            if coin.Parent then
+                local tc
+                tc = coin.Touched:Connect(function()
+                    task.wait(0.1)
+                    if coin then coin:Destroy() end
+                    if tc then tc:Disconnect() end
+                end)
+            end
+        end)
+    else
+        hrp.Anchored = true
+    end
+    task.wait(0.02)
+end
+local function cf1Start()
+    cf1Stop()
+    table.insert(cf1Conns, AddConnection(RunService.Heartbeat:Connect(cf1Step)))
+    table.insert(cf1Conns, AddConnection(CoinCollected.OnClientEvent:Connect(function(_, cur, max)
+        if cur == max then cf1Stop() end
+    end)))
+    local hum = getHum()
+    if hum then
+        table.insert(cf1Conns, AddConnection(hum.Died:Connect(function()
+            if not AF.CoinFarm.State then return end
+            task.wait(1)
+            repeat task.wait() until LocalPlayer.Character
+            task.wait(1)
+            LocalPlayer.PlayerGui:WaitForChild("MainGUI")
+            task.wait(1)
+            Modules.TeleportToMap()
+        end)))
+    end
+    local endFade = GameRemotes:FindFirstChild("RoundEndFade")
+    if endFade then
+        table.insert(cf1Conns, AddConnection(endFade.OnClientEvent:Connect(cf1Stop)))
+    end
+end
+task.spawn(cf1Start)
+
+-- ── Coin Farm 2 (safe platform under map + firetouchinterest) ──
+local oldPlatform = Workspace:FindFirstChild("GhostCF2Platform")
+if oldPlatform then oldPlatform:Destroy() end
+local cf2Platform = Instance.new("Part")
+cf2Platform.Name = "GhostCF2Platform"
+cf2Platform.Anchored = true
+cf2Platform.Position = Vector3.new(1, -100, 1)
+cf2Platform.Size = Vector3.new(100, 1.2, 100)
+cf2Platform.Parent = Workspace
+
+local cf2Done, cf2Running = false, false
+local function cf2ToPlatform()
+    local hrp = getHRP()
+    if hrp then
+        hrp.CFrame = CFrame.new(cf2Platform.Position + Vector3.new(math.random(-10, 5), 5, math.random(-10, 5)))
+    end
+end
+local function cf2UnderCoin(coin)
+    local hrp = getHRP()
+    if coin and hrp then hrp.CFrame = CFrame.new(coin.Position + Vector3.new(0, -6, 0)) end
+end
+local function cf2Run()
+    if cf2Running then return end
+    cf2Running = true
+    cf2Done = false
+    if AF.CoinFarm2.State then cf2ToPlatform() end
+    while not cf2Done do
+        local map = getCoinMap()
+        if not map then
+            task.wait(1)
+            if AF.CoinFarm2.State then continue end
+        elseif AF.CoinFarm2.State then
+            task.spawn(function() pcall(destroyMapExceptCoins) end)
+            local target, lowest = nil, math.huge
+            for _, c in ipairs(map.CoinContainer:GetChildren()) do
+                if c:FindFirstChild("TouchInterest") and c.Position.Y < lowest then
+                    lowest = c.Position.Y
+                    target = c
+                end
+            end
+            if not target then
+                task.wait(0.1)
+                continue
+            end
+            local collected = false
+            cf2UnderCoin(target)
+            local conn = CoinCollected.OnClientEvent:Connect(function(_, cur, max)
+                collected = true
+                if cur == max then cf2Done = true end
+            end)
+            while true do
+                task.wait()
+                task.spawn(function()
+                    local hrp = getHRP()
+                    if hrp then
+                        pcall(firetouchinterest, hrp, target, 0)
+                        pcall(firetouchinterest, hrp, target, 1)
+                    end
+                end)
+                task.wait()
+                noclipSelf()
+                cf2UnderCoin(target)
+                if collected or not target:FindFirstChild("TouchInterest") then break end
+            end
+            conn:Disconnect()
+            cf2ToPlatform()
+            task.wait(2)
+            continue
+        end
+        break
+    end
+    cf2Running = false
+end
+AddConnection(LocalPlayer.CharacterAdded:Connect(function(c)
+    if AF.CoinFarm2.State then
+        c:WaitForChild("HumanoidRootPart", 5)
+        cf2ToPlatform()
+    end
+end))
+
+-- ── Event Farm (attribute coins: Candy / BeachBall / Coin / SnowToken / Egg) ──
+local EF = {
+    PlayerData = {}, MaxCoins = 40, CoinBag = 0, TotalCollected = 0, SessionTime = 0,
+    PauseFloatTP = false, IsFarming = false, CoinTypes = {"Any"}, Mode = "Under", Speed = 22.7,
+    KillAllOnFull = false, ResetOnFullBag = false, FlingMurdererOnFull = false,
+    FlingedRecently = false, LastFlingTime = 0, Enabled = false,
+}
+local ExtrasRemotes = ReplicatedStorage.Remotes:FindFirstChild("Extras")
+local function efIsElite()
+    local ok, r = pcall(function() return ExtrasRemotes.AmElite:InvokeServer() end)
+    return ok and r
+end
+task.spawn(function()
+    pcall(function()
+        EF.PlayerData = GameRemotes.GetCurrentPlayerData:InvokeServer() or {}
+        EF.MaxCoins = efIsElite() and 50 or 40
+        local me = EF.PlayerData[LocalPlayer.Name]
+        if me then
+            EF.CoinBag = me.Coins or 0
+            EF.IsFarming = not me.Dead
+        end
+    end)
+end)
+do
+    local pdc = GameRemotes:FindFirstChild("PlayerDataChanged")
+    if pdc then
+        AddConnection(pdc.OnClientEvent:Connect(function(d)
+            if type(d) == "table" then EF.PlayerData = d end
+        end))
+    end
+    AddConnection(CoinCollected.OnClientEvent:Connect(function(_, cur)
+        EF.CoinBag = tonumber(cur) or EF.CoinBag
+        EF.TotalCollected += 1
+    end))
+    local lm = GameRemotes:FindFirstChild("LoadingMap")
+    if lm then AddConnection(lm.OnClientEvent:Connect(function() EF.CoinBag = 0 end)) end
+    AddConnection(RoundStartRE.OnClientEvent:Connect(function()
+        EF.IsFarming = true
+        task.spawn(function() EF.MaxCoins = efIsElite() and 50 or 40 end)
+    end))
+    local ef = GameRemotes:FindFirstChild("RoundEndFade")
+    if ef then AddConnection(ef.OnClientEvent:Connect(function() EF.IsFarming = false end)) end
+end
+
+local function efAlive()
+    local c = LocalPlayer.Character
+    local h = c and c:FindFirstChildWhichIsA("Humanoid")
+    return c ~= nil and h ~= nil and h.Health > 0
+end
+local function efInRound(p)
+    local d = EF.PlayerData[p.Name]
+    return d ~= nil and not d.Dead
+end
+local function efMap()
+    for _, c in ipairs(Workspace:GetChildren()) do
+        if c:GetAttribute("MapID") then return c end
+    end
+end
+local function efFull() return EF.CoinBag >= EF.MaxCoins end
+local function efIsMurderer()
+    local d = EF.PlayerData[LocalPlayer.Name]
+    return d ~= nil and d.Role == "Murderer"
+end
+local function efOnlyMurdererLeft()
+    local alive, murdAlive = 0, false
+    for name, d in pairs(EF.PlayerData) do
+        if name ~= LocalPlayer.Name and d and not d.Dead then
+            alive += 1
+            if d.Role == "Murderer" then murdAlive = true end
+        end
+    end
+    return efInRound(LocalPlayer) and alive == 1 and murdAlive
+end
+local function efReset()
+    EF.PauseFloatTP = true
+    task.wait(0.5)
+    if efAlive() then getHum():ChangeState(Enum.HumanoidStateType.Dead) end
+    repeat task.wait(0.2) until efAlive()
+    EF.PauseFloatTP = false
+end
+local function efKillAll()
+    local hum = getHum()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp and bp:FindFirstChild("Knife") and hum then hum:EquipTool(bp.Knife) end
+    local knife = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Knife")
+    if not knife then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        task.spawn(function()
+            local myHRP = getHRP()
+            if p ~= LocalPlayer and p.Character and myHRP and efInRound(p) then
+                local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    pcall(function()
+                        firetouchinterest(knife.Handle, hrp, 1)
+                        knife:FindFirstChild("Events"):FindFirstChild("KnifeStabbed"):FireServer()
+                        knife:Activate()
+                        firetouchinterest(knife.Handle, hrp, 0)
+                    end)
+                end
+            end
         end)
     end
 end
-
--- ── Stats overlay ──
-local _coinsCollected = 0; local _farmStartTime = tick()
-pcall(function()
-    local CoinCollected = ReplicatedStorage.Remotes.Gameplay:FindFirstChild("CoinCollected")
-    if CoinCollected then
-        AddConnection(CoinCollected.OnClientEvent:Connect(function(_, p1, p2)
-            if p1 == LocalPlayer then _coinsCollected = _coinsCollected + 1 end
-            -- Bag full handler
-            if p1 == p2 and not _bagFullHandled then
-                _bagFullHandled = true
-                task.spawn(function()
-                    if FarmConfig.KillAtBag and Modules.FindMurderer() == LocalPlayer then
-                        for i = 1, 10 do
-                            if Modules.FindMurderer() ~= LocalPlayer then break end
-                            killAllAnchor(); task.wait(1)
-                        end
-                    elseif FarmConfig.FlingAtBag and Modules.FindMurderer() ~= LocalPlayer then
-                        for i = 1, 5 do
-                            local murd = Modules.FindMurderer()
-                            if not murd or murd == LocalPlayer then break end
-                            miniFling({murd.Name}); task.wait(1)
-                        end
-                    elseif FarmConfig.TeleportUnderAtBag then
-                        task.wait(0.1); teleportToSafeSpot()
-                    elseif FarmConfig.DieAtBag then
-                        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                        if hum then hum:ChangeState(Enum.HumanoidStateType.Dead) end
-                    end
-                    task.wait(2); _bagFullHandled = false
-                end)
+local function efNearestCoin()
+    local hrp = getHRP()
+    if not hrp then return end
+    local map = efMap()
+    local cc = map and map:FindFirstChild("CoinContainer")
+    if not cc then return end
+    local best, bestD = nil, math.huge
+    for _, c in ipairs(cc:GetChildren()) do
+        local id = c:GetAttribute("CoinID")
+        if id and not c:GetAttribute("Collected") and c:IsA("BasePart")
+            and (table.find(EF.CoinTypes, id) or table.find(EF.CoinTypes, "Any")) then
+            local vis = c:FindFirstChild("CoinVisual")
+            local main = vis and vis:FindFirstChild("MainCoin")
+            if main and main.Transparency == 0 then
+                local d = (hrp.Position - c.Position).Magnitude
+                if d < bestD then best, bestD = c, d end
             end
-        end))
+        end
     end
-end)
+    return best
+end
+local function efMarkFling()
+    EF.FlingedRecently = true
+    EF.LastFlingTime = tick()
+    task.delay(30, function()
+        if tick() - EF.LastFlingTime >= 30 then EF.FlingedRecently = false end
+    end)
+end
 
--- ── Round start handler ──
-pcall(function()
-    AddConnection(ReplicatedStorage.Remotes.Gameplay.RoundStart.OnClientEvent:Connect(function()
-        _coinsCollected = 0; _farmStartTime = tick()
-        if FarmConfig.KillOnStart then
-            task.spawn(function()
+local efFloat, efStartPos = nil, nil
+local efConns = {}
+local function efParkFloat()
+    if efFloat and efFloat.Parent then efFloat.CFrame = CFrame.new(100, 0, 100) end
+end
+local function efHandleFullBag()
+    if EF.FlingMurdererOnFull and not efIsMurderer() and efAlive() and efFull() then
+        if efOnlyMurdererLeft() then
+            efReset()
+        else
+            for name, d in pairs(EF.PlayerData) do
+                if name ~= LocalPlayer.Name and d.Role == "Murderer" and not d.Dead then
+                    EF.PauseFloatTP = true
+                    efMarkFling()
+                    miniFling({name})
+                    EF.PauseFloatTP = false
+                    task.wait(0.5)
+                    break
+                end
+            end
+        end
+    end
+    if efIsMurderer() and EF.KillAllOnFull and efFull() and efInRound(LocalPlayer) and efAlive() then
+        efKillAll()
+    end
+    if EF.ResetOnFullBag and efFull() and efAlive() and not efIsMurderer() and not EF.FlingedRecently and efInRound(LocalPlayer) then
+        efReset()
+    end
+end
+local function efCollect(hrp)
+    local coin = efNearestCoin()
+    if not coin then return end
+    local offset = EF.Mode == "Under" and -6 or -2
+    local target = CFrame.new(coin.Position) * CFrame.new(0, offset - 1, 0)
+    local dist = (hrp.Position - target.Position).Magnitude
+    if dist >= 200 then
+        efFloat.CFrame = target
+    else
+        local tw = TweenService:Create(efFloat, TweenInfo.new(dist / EF.Speed, Enum.EasingStyle.Linear), {CFrame = target})
+        tw:Play()
+        if not efFull() then
+            tw.Completed:Wait()
+            tw:Cancel()
+        end
+    end
+    for _ = 0, 200 do
+        pcall(function()
+            firetouchinterest(hrp, coin, 1)
+            firetouchinterest(hrp, coin, 0)
+        end)
+    end
+    coin:Destroy()
+end
+local function efSetEnabled(on)
+    EF.Enabled = on
+    for _, c in ipairs(efConns) do pcall(function() c:Disconnect() end) end
+    table.clear(efConns)
+    if not on then
+        if efFloat then efFloat:Destroy(); efFloat = nil end
+        local hrp = getHRP()
+        if hrp and efStartPos then
+            hrp.Anchored = true
+            hrp.CFrame = CFrame.new(efStartPos)
+            hrp.Velocity = Vector3.zero
+            task.wait(0.7)
+            hrp.Anchored = false
+        end
+        return
+    end
+    if efFloat then efFloat:Destroy() end
+    efFloat = Instance.new("Part")
+    efFloat.Name = "GhostEventFloat"
+    efFloat.Size = Vector3.new(5, 0.1, 5)
+    efFloat.CanCollide = true; efFloat.Anchored = true; efFloat.Transparency = 1
+    efFloat.Parent = Workspace
+    local hrp0 = getHRP()
+    efStartPos = hrp0 and hrp0.Position or Vector3.zero
+    table.insert(efConns, AddConnection(RunService.RenderStepped:Connect(function(dt)
+        EF.SessionTime += dt
+        if getHRP() then noclipSelf() end
+    end)))
+    table.insert(efConns, AddConnection(RunService.Heartbeat:Connect(function()
+        local hrp = getHRP()
+        if hrp and efFloat and efAlive() and not EF.PauseFloatTP then
+            local cf = efFloat.CFrame * CFrame.new(0, 3, 0)
+            if efInRound(LocalPlayer) and not efFull() and EF.IsFarming then
+                cf = cf * CFrame.Angles(math.rad(90), 0, 0)
+            end
+            hrp.CFrame = cf
+            hrp.Velocity = Vector3.zero
+            hrp.RotVelocity = Vector3.zero
+        end
+    end)))
+    task.spawn(function()
+        while EF.Enabled do
+            local hrp = getHRP()
+            if not hrp or not efAlive() then
                 task.wait(1)
-                repeat killAllAnchor(); task.wait(1) until Modules.FindMurderer() ~= LocalPlayer
-            end)
-        end
-        if FarmConfig.FlingMurdOnStart then
-            local m = Modules.FindMurderer()
-            if m and m ~= LocalPlayer then task.spawn(function() miniFling({m.Name}) end) end
-        end
-        if FarmConfig.FlingSheriOnStart then
-            local s = Modules.FindSheriff()
-            if s and s ~= LocalPlayer then task.spawn(function() miniFling({s.Name}) end) end
-        end
-    end))
-end)
-
--- ── CoinFarm v2: firetouchinterest instant collection loop ──
-task.spawn(function()
-    while true do
-        task.wait(0.05)
-        if FarmConfig.CoinFarmV2 and firetouchinterest then
-            local lc  = LocalPlayer.Character
-            local hrp = lc and lc:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                for _, child in ipairs(workspace:GetChildren()) do
-                    local container = child:FindFirstChild("CoinContainer")
-                    if container then
-                        for _, coin in ipairs(container:GetChildren()) do
-                            if coin.Name == "Coin_Server" and coin:IsA("BasePart")
-                                and not coin:FindFirstChild("CollectedCoin")
-                                and coin:FindFirstChild("TouchInterest") then
-                                pcall(function()
-                                    firetouchinterest(hrp, coin, 0)
-                                    firetouchinterest(hrp, coin, 1)
-                                end)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-end)
-
--- ── CoinFarm v1: TweenService smooth / instant TP loop ──
-task.spawn(function()
-    while true do
-        task.wait(0.05)
-        if FarmConfig.CoinEnabled and not FarmConfig.CoinFarmV2 then
-            if isBagFull() then
-                if FarmConfig.AutoFlingOnDone then flingMurdererFarm() end
+            elseif not efMap() then
+                efParkFloat()
+            elseif not efInRound(LocalPlayer) or efFull() or not EF.IsFarming then
+                if EF.IsFarming then efHandleFullBag() end
+                efParkFloat()
+                task.wait(0.1)
             else
-                local lc  = LocalPlayer.Character
-                local hrp = lc and lc:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local coin, dist = getNearestCoin(hrp.Position)
-                    if coin then
-                        if FarmConfig.CoinInstantTP then
-                            pcall(function() hrp.CFrame = CFrame.new(coin.Position + Vector3.new(0, 3, 0)) end)
-                        else
-                            local step = math.min(FarmConfig.CoinSpeed * 0.05, dist)
-                            local dir  = (coin.Position - hrp.Position).Unit
-                            pcall(function() hrp.CFrame = CFrame.new(hrp.Position + dir * step) end)
-                        end
-                    else
-                        if FarmConfig.AutoFlingOnDone then flingMurdererFarm() end
-                    end
-                end
+                efCollect(hrp)
             end
+            task.wait()
         end
+    end)
+end
+local function efStatsText()
+    local function fmtTime(s)
+        return string.format("%02d:%02d:%02d", math.floor(s / 3600), math.floor(s / 60) % 60, math.floor(s % 60))
     end
-end)
+    local function commas(n)
+        local s = tostring(n):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+        return s
+    end
+    local perHour = EF.SessionTime > 0 and math.round(EF.TotalCollected / EF.SessionTime * 3600) or 0
+    return string.format("Time: %s\nCoins: %s | Per Hour: %s", fmtTime(EF.SessionTime), commas(EF.TotalCollected), commas(perHour))
+end
 
--- ── XP farm loop ──
-task.spawn(function()
-    while true do
-        task.wait(1.5)
-        if FarmConfig.XPFarmEnabled then
-            local lc  = LocalPlayer.Character
-            local hrp = lc and lc:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if p ~= LocalPlayer then
-                        local bp2 = p:FindFirstChild("Backpack")
-                        local isMurd = p.Character and (p.Character:FindFirstChild("Knife") or (bp2 and bp2:FindFirstChild("Knife")))
-                        if isMurd then
-                            local mHRP = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-                            if mHRP then
-                                pcall(function() hrp.CFrame = mHRP.CFrame * CFrame.new(0, 0, 3) end)
-                                task.wait(0.1)
-                                local tool = lc:FindFirstChildWhichIsA("Tool")
-                                if tool then
-                                    local remote = tool:FindFirstChildOfClass("RemoteEvent") or tool:FindFirstChildOfClass("RemoteFunction")
-                                    if remote then pcall(function() remote:FireServer(mHRP.CFrame) end) end
-                                end
-                            end
-                            break
-                        end
-                    end
-                end
+-- ── Round start ──
+AddConnection(RoundStartRE.OnClientEvent:Connect(function()
+    task.spawn(cf2Run)
+    task.spawn(function()
+        if AF.AutoRevealRoles then
+            task.wait(1)
+            revealRoles()
+        end
+        if AF.AutoFarm.KillEveryone then
+            task.wait(1)
+            repeat
+                killEveryone()
+                task.wait(1)
+            until Modules.FindMurderer() ~= LocalPlayer
+        end
+        if AF.AutoFarm.AutoFlingMurderer then
+            local m = Modules.FindMurderer()
+            if m and m ~= LocalPlayer then miniFling({m.Name}) end
+        end
+        if AF.AutoFarm.AutoFlingSheriff then
+            local s = Modules.FindSheriff()
+            if s and s ~= LocalPlayer then miniFling({s.Name}) end
+        end
+        if AF.AutoFarm.TeleportSpawn then Modules.TeleportToLobby() end
+        cf1Start()
+    end)
+end))
+
+-- ── Full bag actions ──
+local bagHandled = false
+AddConnection(CoinCollected.OnClientEvent:Connect(function(_, cur, max)
+    if cur ~= max or bagHandled then return end
+    bagHandled = true
+    task.spawn(function()
+        if AF.AutoFarm.KillAtFullBag and Modules.FindMurderer() == LocalPlayer then
+            for _ = 1, 10 do
+                if Modules.FindMurderer() ~= LocalPlayer then break end
+                killEveryone()
+                task.wait(1)
             end
+        elseif AF.AutoFarm.FlingMurdererAtFullBag and Modules.FindMurderer() ~= LocalPlayer then
+            for _ = 1, 5 do
+                local m = Modules.FindMurderer()
+                if not m or m == LocalPlayer then break end
+                miniFling({m.Name})
+                task.wait(1)
+            end
+        elseif AF.AutoFarm.TeleportUnderMap then
+            task.wait(0.1)
+            teleportUnderMap()
+        elseif AF.CoinFarm.DieAtFullBag then
+            local h = getHum()
+            if h then h:ChangeState(Enum.HumanoidStateType.Dead) end
         end
-    end
-end)
+        task.wait(2)
+        bagHandled = false
+    end)
+end))
 
--- ── Auto Prestige loop ──
+-- ── Auto prestige / auto open crates / server hop when empty ──
 task.spawn(function()
     while true do
         task.wait(30)
-        if FarmConfig.AutoPrestige then
+        if AF.AutoFarm.AutoPrestige then
             pcall(function() ReplicatedStorage.Remotes.Inventory.Prestige:FireServer() end)
         end
     end
 end)
 
--- ── Auto Open Crates loop ──
+local CRATES, CRATE_TYPES = {}, {}
+pcall(function()
+    for name, info in pairs(require(ReplicatedStorage.Database.Sync.Shop).Weapons) do
+        local n = tostring(name)
+        table.insert(CRATES, n)
+        if type(info) == "table" then CRATE_TYPES[n] = info.DataType end
+    end
+    table.sort(CRATES)
+end)
+local function selectCrate(name)
+    AF.AutoOpenCrates.Crate = name
+    if CRATE_TYPES[name] then AF.AutoOpenCrates.CrateType = CRATE_TYPES[name] end
+end
+if CRATES[1] and not table.find(CRATES, AF.AutoOpenCrates.Crate) then selectCrate(CRATES[1]) end
 task.spawn(function()
     while true do
-        task.wait(1)
-        if FarmConfig.AutoOpenCrates then
+        task.wait(0.5)
+        if AF.AutoOpenCrates.State and AF.AutoOpenCrates.Crate then
             pcall(function()
-                ReplicatedStorage.Remotes.MysteryBox.OpenBox:FireServer("OpenBox", FarmConfig.CrateName, FarmConfig.CrateType)
+                ReplicatedStorage.Remotes.MysteryBox.OpenBox:FireServer("OpenBox", AF.AutoOpenCrates.Crate, AF.AutoOpenCrates.CrateType)
             end)
         end
     end
 end)
 
--- ── Emote spam loop ──
-task.spawn(function()
-    while true do
-        task.wait(1 / math.max(FarmConfig.EmoteSpamSpeed, 1))
-        if FarmConfig.EmoteSpam then
-            pcall(function() ReplicatedStorage.Remotes.Misc.PlayEmote:Fire(FarmConfig.SelectedEmote) end)
-        end
-    end
-end)
-
--- ── Shuffle weapons loop ──
-task.spawn(function()
-    while true do
-        task.wait(5)
-        if FarmConfig.ShuffleWeapons then shuffleWeapons() end
-    end
-end)
-
--- ── Server hop when empty ──
 AddConnection(Players.PlayerRemoving:Connect(function()
     task.defer(function()
-        if FarmConfig.AutoServerHopEmpty and #Players:GetPlayers() <= FarmConfig.ServerHopThreshold then
+        if AF.AutoFarm.AutoServerHop and AF.AutoFarm.PlayersToServerHop > #Players:GetPlayers() then
             Modules.ServerHop()
         end
     end)
 end))
+
+-- ── Remove depth-of-field blur ──
+local function killDepthOfField(c)
+    if c.Name == "DepthOfField" then
+        pcall(function()
+            c.InFocusRadius = 500
+            c:Destroy()
+        end)
+    end
+end
+for _, c in ipairs(Lighting:GetChildren()) do killDepthOfField(c) end
+AddConnection(Lighting.ChildAdded:Connect(killDepthOfField))
+
+-- ── XP farm (teleport behind murderer + fire held tool) ──
+task.spawn(function()
+    while true do
+        task.wait(1.5)
+        if AF.XPFarm then
+            local hrp = getHRP()
+            local m = Modules.FindMurderer()
+            local mHRP = m and m ~= LocalPlayer and m.Character and m.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and mHRP then
+                pcall(function() hrp.CFrame = mHRP.CFrame * CFrame.new(0, 0, 3) end)
+                task.wait(0.1)
+                local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildWhichIsA("Tool")
+                local remote = tool and (tool:FindFirstChildOfClass("RemoteEvent") or tool:FindFirstChildOfClass("RemoteFunction"))
+                if remote and remote:IsA("RemoteEvent") then
+                    pcall(function() remote:FireServer(mHRP.CFrame) end)
+                end
+            end
+        end
+    end
+end)
+
+-- ── Anti AFK ──
+local antiAFKConn = nil
+local function applyAntiAFK(enabled)
+    if antiAFKConn then antiAFKConn:Disconnect(); antiAFKConn = nil end
+    if enabled then
+        antiAFKConn = AddConnection(LocalPlayer.Idled:Connect(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end))
+    end
+end
+
+-- ── Fly GUI ──
+local function openFlyGui()
+    local ok, err = pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/XNEOFF/FlyGuiV3/main/FlyGuiV3.txt"))()
+    end)
+    if not ok then notify("Fly GUI failed", tostring(err), "x-circle", 4) end
+end
+
+-- ── Inventory value ──
+local function getValueList()
+    local cachePath = "ValueData/mm2_values.json"
+    pcall(function()
+        if not isfolder("ValueData") then makefolder("ValueData") end
+    end)
+    local okCache, cached = pcall(function()
+        if isfile(cachePath) then return HttpService:JSONDecode(readfile(cachePath)) end
+    end)
+    if okCache and type(cached) == "table" and os.time() - (cached._time or 0) < 3600 then
+        return cached.data or {}
+    end
+    local ok, raw = pcall(function()
+        return game:HttpGet("https://api.project-reverse.org/valuables/get-game-valuables?game=mm2")
+    end)
+    if ok then
+        local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
+        if ok2 and type(data) == "table" then
+            pcall(function() writefile(cachePath, HttpService:JSONEncode({data = data.data, _time = os.time()})) end)
+            return data.data or {}
+        end
+    end
+    return (okCache and type(cached) == "table" and cached.data) or {}
+end
+local function inventoryReport(playerName)
+    local prices = {}
+    for _, v in pairs(getValueList()) do
+        if type(v) == "table" and v.name then prices[v.name] = tonumber(v.price) or 0 end
+    end
+    local res = ReplicatedStorage.Remotes.Extras.GetFullInventory:InvokeServer(playerName) or {}
+    local items = {}
+    for k, n in pairs((res.Weapons or {}).Owned or {}) do items[k] = (items[k] or 0) + (tonumber(n) or 0) end
+    for k, n in pairs((res.Pets or {}).Owned or {}) do items[k] = (items[k] or 0) + (tonumber(n) or 0) end
+    local rows, total, count = {}, 0, 0
+    for name, n in pairs(items) do
+        local price = prices[name] or 0
+        if price > 0 then
+            table.insert(rows, {name = name, count = n, price = price, total = price * n})
+            total += price * n
+            count += n
+        end
+    end
+    table.sort(rows, function(a, b) return a.total > b.total end)
+    local lines = {"Inventory Analysis:", string.rep("-", 40)}
+    for _, r in ipairs(rows) do
+        table.insert(lines, string.format("%-20s x%-4d | $%8.2f | $%10.2f", r.name, r.count, r.price, r.total))
+    end
+    table.insert(lines, string.rep("-", 40))
+    table.insert(lines, string.format("Total Items: %d", count))
+    table.insert(lines, string.format("Total Value: $%d", math.floor(total)))
+    return table.concat(lines, "\n"), total, count
+end
 
 -- ============================================================
 -- TABS (our sidebar Section system + Vision Hub tab content)
@@ -1808,62 +2498,30 @@ end))
 -- ── HOME ────────────────────────────────────────────────────
 local HomeTab = Window:Tab({Title="Home", Icon="house"})
 HomeTab:Paragraph({
-    Title = " Welcome to Ghost HUB!",
-    Desc  = "Halloween Edition v5.0 — All AutoFarm methods loaded. RShift to toggle.",
+    Title = "Welcome to Ghost HUB",
+    Desc  = "Halloween Edition v5.0. RightShift opens/closes the menu on PC; on mobile use the Ghost HUB button.",
 })
 HomeTab:Space()
 HomeTab:Paragraph({
-    Title = " Changelog v5.0 — Halloween",
+    Title = "What's new in v5.0",
     Desc  = [[
-[Ghost HUB v5.0 — Halloween Edition]
-+ Full Halloween theme: orange border, spooky names
-+ AutoFarm v1: TweenService smooth coin farm (TouchInterest check)
-+ AutoFarm v2: firetouchinterest instant collection
-+ Kill All Anchor: anchor HRP + Stab:FireServer("Slash")
-+ AH2 Auto Shoot: RenderStepped raycast + KnifeLocal.CreateBeam:InvokeServer
-+ Bag Full Actions: Kill / Fling / Teleport Under / Die at bag full
-+ Round Start: Kill All, Fling Murderer, Fling Sheriff on start
-+ Auto Prestige (every 30s)
-+ Auto Open Crates (every 1s, custom name/type)
-+ Auto Server Hop When Empty (player threshold)
-+ Emote Spam (speed slider)
-+ Shuffle Weapons (random every 5s)
-+ Destroy Map Except Coins
-+ Destroy Other Players
-+ Candy Stats: coins/hr counter
-+ Safe Spot teleport (-106, 87.5, 2)
---- Original features below ---
-+ Script by Zovlane
-+ MultiSection Combat (General / Murderer / Sheriff)
-+ MultiSection Visuals (ESP / Notify)
-+ MultiSection Teleports (Players / Roles / Locations)
-+ MultiSection Misc (Fling / Emotes / Chat)
-+ ButtonKeybind elements (G=GrabGun, K=KillAll, E=Shoot, Q=Throw)
-+ Buttons tab — draggable individual mobile buttons
-+ Save / Load Config
-+ Auto Shoot with ping prediction (rf:InvokeServer AH2)
-+ Kill All + Auto Kill + Knife Aura (with Stab remote)
-+ Auto Knife Throw / Throw Knife
-+ God Mode (HealthChanged + polling)
-+ Anti-Fling (CanCollide=false on others)
-+ Noclip + Infinite Jump
-+ ESP: Highlight + BillboardGui names + Hero role
-+ Gun Drop ESP (Highlight + BillboardGui)
-+ Round Timer HUD
-+ Notify Murderer / Sheriff (avatar thumbnails)
-+ Notify Gun Dropped
-+ Fling by role (Murderer / Sheriff / Hero)
-+ Teleport to Map / Lobby / Player / Role
-+ Server Hop + Rejoin (with confirm dialog)
-+ Queue on Teleport toggle
-+ Emotes (sit, zombie, ninja, zen, floss, dab)
-+ Chat Roles in chat
-+ Farming tab placeholder
-+ Our GUI: border, open pill, MAC buttons, avatar, font
++ Coin Farm 1 (fly), Coin Farm 2 (safe TP under map), Event Farm (Candy / BeachBall / SnowToken / Egg)
++ Stats overlay, session coins per hour
++ On full bag: kill everyone, fling murderer, teleport under map, or die
++ Round start: kill everyone, fling murderer / sheriff, teleport to lobby
++ Auto shoot murderer with line-of-sight check and movement prediction
++ Kill everyone + bring all players (murderer)
++ Auto pick up gun, trap ESP, reveal roles
++ Fling random player, loop fling all
++ Unlock all emotes, emote spam, shuffle weapons
++ Auto open crates (real crate list), auto prestige, server hop when empty
++ Inventory value analyzer
++ Keybinds are all off until you set them in Settings
++ Mobile open button, window fits your screen
     ]]
 })
 HomeTab:Space()
-HomeTab:Paragraph({Title="Found a bug?", Desc="-- Re-execute the script or rejoin --"})
+HomeTab:Paragraph({Title="Found a bug?", Desc="Re-execute the script or rejoin."})
 
 -- ── COMBAT SECTION ─────────────────────────────────────────
 local CombatSection = Window:Section({Title="Combat", Opened=true})
@@ -1872,9 +2530,9 @@ local CombatSection = Window:Section({Title="Combat", Opened=true})
 local CombatTab = CombatSection:Tab({Title="Combat", Icon="crosshair"})
 
 local CombatGeneral = CombatTab:Section({Title="General", Opened=true})
-CombatGeneral:Button({Title="Grab Gun [G]", Desc="Pick up gun from the map",
+CombatGeneral:Button({Title="Pick Up Gun", Desc="Walks to the dropped gun, grabs it and returns",
     Icon="hand", Callback=Modules.GrabGun})
-CombatGeneral:Toggle({Title="Auto Grab Gun", Desc="Automatically grab gun", Flag="AutoGrabGunToggle",
+CombatGeneral:Toggle({Title="Auto Pick Up Gun", Desc="Grab the gun as soon as it drops", Flag="AutoGrabGunToggle",
     Callback=Modules.ToggleAutoGrabGun})
 CombatGeneral:Space()
 CombatGeneral:Toggle({Title="God Mode", Desc="Grants extra lives", Flag="GodModeToggle",
@@ -1883,11 +2541,16 @@ CombatGeneral:Toggle({Title="Anti-Fling", Desc="Prevents players from flinging y
     Callback=Modules.ToggleAntiFling})
 
 local CombatMurdS = CombatTab:Section({Title="Murderer", Opened=true})
-CombatMurdS:Button({Title="Kill All [K]", Desc="Kill all players (firetouchinterest)",
-    Icon="skull", Callback=Modules.KillAll})
-CombatMurdS:Button({Title="Kill All (Anchor)", Desc="Anchor HRP + Stab:FireServer — AutoFarm method",
-    Icon="skull", Callback=function() task.spawn(killAllAnchor) end})
-CombatMurdS:Toggle({Title="Auto Kill All", Desc="Automatically kill players", Flag="AutoKillToggle",
+CombatMurdS:Button({Title="Kill Everyone", Desc="Pulls everyone in front of you and slashes",
+    Icon="skull", Callback=function()
+        if Modules.FindMurderer() ~= LocalPlayer then
+            notify("Not the murderer", "You do not have the knife.", "alert-triangle", 4)
+        end
+        task.spawn(killEveryone)
+    end})
+CombatMurdS:Button({Title="Bring All Players", Desc="Teleport every player in front of you",
+    Icon="users", Callback=bringAllPlayers})
+CombatMurdS:Toggle({Title="Auto Kill All", Desc="Keep killing everyone while you have the knife", Flag="AutoKillToggle",
     Callback=Modules.ToggleAutoKillAll})
 CombatMurdS:Space()
 CombatMurdS:Toggle({Title="Knife Aura", Desc="Kill players within a radius", Flag="KillAuraToggle",
@@ -1897,51 +2560,15 @@ CombatMurdS:Slider({Title="Aura Radius", Desc="Detection radius", Flag="AuraRadi
 CombatMurdS:Space()
 CombatMurdS:Toggle({Title="Auto Knife Throw", Desc="Throws knife at nearest automatically", Flag="ThrowKnifeFlag",
     Callback=Modules.ToggleSilentThrow})
-CombatMurdS:Button({Title="Throw Knife [Q]", Desc="Throw knife at nearest player",
+CombatMurdS:Button({Title="Throw Knife", Desc="Throw knife at nearest player",
     Icon="crosshair", Callback=Modules.ExecuteThrowAtNearest})
 
 local CombatSherS = CombatTab:Section({Title="Sheriff", Opened=true})
-CombatSherS:Toggle({Title="Auto Shoot (TP method)", Desc="Automatically shoots the murderer (TP + Shoot:FireServer)", Flag="AutoShootMurderer",
+CombatSherS:Toggle({Title="Auto Shoot Murderer", Desc="Shoots the murderer whenever you have line of sight", Flag="AutoShootMurderer",
     Callback=Modules.ToggleAutoShootMurderer})
-CombatSherS:Toggle({Title="Auto Shoot AH2", Desc="RenderStepped raycast + KnifeLocal.CreateBeam:InvokeServer — AutoFarm method", Flag="AutoShootAH2Toggle",
-    Callback=function(v)
-        if v then
-            AddConnection(RunService.RenderStepped:Connect(function()
-                if not v then return end
-                local murderer = Modules.FindMurderer()
-                if not murderer or not murderer.Character then return end
-                local mHRP = murderer.Character:FindFirstChild("HumanoidRootPart")
-                if not mHRP then return end
-                local myChar = LocalPlayer.Character
-                local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-                if not myHRP then return end
-                local dir = mHRP.Position - myHRP.Position
-                local rayParams = RaycastParams.new()
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                rayParams.FilterDescendantsInstances = {myChar}
-                local hit = workspace:Raycast(myHRP.Position, dir, rayParams)
-                if not hit or hit.Instance.Parent == murderer.Character then
-                    local Gun = myChar:FindFirstChild("Gun") or LocalPlayer.Backpack:FindFirstChild("Gun")
-                    if Gun then
-                        local hum = myChar:FindFirstChildOfClass("Humanoid")
-                        if hum and Gun.Parent == LocalPlayer.Backpack then hum:EquipTool(Gun) end
-                        local UpperTorso = murderer.Character:FindFirstChild("UpperTorso")
-                        local mHum = murderer.Character:FindFirstChild("Humanoid")
-                        if not UpperTorso or not mHum then return end
-                        local moveDir = mHum.MoveDirection
-                        local predictedPos = UpperTorso.Position + UpperTorso.AssemblyLinearVelocity * Vector3.new(0, 0.5, 0) * 0.14 + moveDir * 2.8
-                        pcall(function()
-                            local Gun2 = myChar:FindFirstChild("Gun")
-                            if Gun2 then Gun2.KnifeLocal.CreateBeam.RemoteFunction:InvokeServer(1, predictedPos, "AH2") end
-                        end)
-                    end
-                end
-            end))
-        end
-    end})
-CombatSherS:Button({Title="TP & Shoot Murderer [E]", Desc="Teleports in front of murderer then shoots",
+CombatSherS:Button({Title="Shoot Murderer", Desc="Fire one predicted shot at the murderer",
     Icon="crosshair", Callback=Modules.ShootMurdererOnce})
-CombatSherS:Button({Title="Toggle Silent Aim", Desc="Hooks your gun — every shot auto-aims at murderer",
+CombatSherS:Button({Title="Toggle Silent Aim", Desc="Redirects your manual shots to the murderer",
     Icon="crosshair", Callback=Modules.ShootMurdererSilent})
 
 -- Visuals Tab
@@ -2094,6 +2721,8 @@ VisualsESP:Toggle({Title="ESP Dropped Gun", Desc="Highlight gun when dropped", F
 VisualsESP:Space()
 VisualsESP:Toggle({Title="Round Timer", Desc="Show round timer HUD", Flag="RoundTimerToggle",
     Callback=function(v) Modules.ToggleRoundTimer(v) end})
+VisualsESP:Toggle({Title="Trap ESP", Desc="Highlight traps placed by the murderer", Flag="TrapEspToggle",
+    Callback=setTrapESP})
 
 local VisualsNotify = VisualsTab:Section({Title="Notify", Opened=true})
 VisualsNotify:Toggle({Title="Notify Gun Dropped", Desc="Alert when gun is dropped", Flag="NotifyGunToggle",
@@ -2102,6 +2731,12 @@ VisualsNotify:Toggle({Title="Notify Murderer", Desc="Alert with picture when Mur
     Callback=function(v) Modules.Config.NotifyMurderer=v; Modules.UpdateRoleNotify() end})
 VisualsNotify:Toggle({Title="Notify Sheriff", Desc="Alert with picture when Sheriff spawns", Flag="NotifySheriffToggle",
     Callback=function(v) Modules.Config.NotifySheriff=v; Modules.UpdateRoleNotify() end})
+VisualsNotify:Space()
+VisualsNotify:Button({Title="Reveal Roles", Desc="Show every player's role", Icon="users", Callback=revealRoles})
+VisualsNotify:Toggle({Title="Auto Reveal Roles", Desc="Show roles at the start of every round", Flag="AutoRevealRolesToggle",
+    Callback=function(v) AF.AutoRevealRoles = v end})
+VisualsNotify:Button({Title="Murderer Username", Icon="skull", Callback=function() notifyRoleName("Murderer") end})
+VisualsNotify:Button({Title="Sheriff Username", Icon="shield", Callback=function() notifyRoleName("Sheriff") end})
 
 -- Troll Tab
 local TrollTab = CombatSection:Tab({Title="Troll", Icon="zap"})
@@ -2181,6 +2816,10 @@ TrollFling:Button({Title="Fling All Players", Desc="Fling everyone one by one", 
     Callback=function()
         task.spawn(function() miniFling({"all"}) end)
     end})
+TrollFling:Button({Title="Fling Random Player", Icon="shuffle",
+    Callback=function() task.spawn(flingRandomPlayer) end})
+TrollFling:Toggle({Title="Loop Fling All Players", Desc="Keeps flinging everyone every 2 seconds", Flag="LoopFlingAllToggle",
+    Callback=function(v) AF.LoopFlingAll = v end})
 TrollFling:Space()
 TrollFling:Button({Title="Fling Murderer", Icon="skull",
     Callback=function()
@@ -2199,14 +2838,20 @@ TrollFling:Button({Title="Fling Hero", Icon="star",
     end})
 
 local TrollEmotes = TrollTab:Section({Title="Emotes", Opened=true})
-local selectedEmote = nil
+TrollEmotes:Button({Title="Unlock All Emotes", Desc="Adds a Free Emotes page to your emote menu", Icon="unlock",
+    Callback=unlockAllEmotes})
 TrollEmotes:Dropdown({Title="Select Emote", Desc="Choose emote", Flag="EmoteDropdown",
-    Values={"sit","zombie","ninja","zen","floss","dab"},
-    Callback=function(v) selectedEmote=v end})
+    Values=EMOTES, Value=AF.Emotes.Selected,
+    Callback=function(v) AF.Emotes.Selected = v end})
 TrollEmotes:Button({Title="Play Emote", Icon="play",
-    Callback=function()
-        if selectedEmote then Modules.PlayEmote(selectedEmote) end
-    end})
+    Callback=function() playEmote(AF.Emotes.Selected) end})
+TrollEmotes:Toggle({Title="Spam Selected Emote", Flag="SpamSelectedEmoteToggle",
+    Callback=function(v) AF.Emotes.SpamSelected = v end})
+TrollEmotes:Toggle({Title="Spam Random Emotes", Flag="SpamRandomEmoteToggle",
+    Callback=function(v) AF.Emotes.SpamRandom = v end})
+TrollEmotes:Slider({Title="Random Spam Speed", Desc="Emotes per second", Flag="EmoteSpeedSlider",
+    Value={Min=1, Max=50, Default=1},
+    Callback=function(v) AF.Emotes.Speed = v end})
 
 -- ── MOVEMENT SECTION ───────────────────────────────────────
 local MovSection = Window:Section({Title="Movement", Opened=true})
@@ -2271,151 +2916,149 @@ local TpLocations = TpTab:Section({Title="Locations", Opened=true})
 TpLocations:Button({Title="Teleport to Lobby", Icon="house", Callback=Modules.TeleportToLobby})
 TpLocations:Button({Title="Teleport to Map", Icon="map", Callback=Modules.TeleportToMap})
 
--- ── CANDY HARVEST SECTION ──────────────────────────────────
+-- ── AUTOMATION SECTION ─────────────────────────────────────
 local AutoSection = Window:Section({Title="Automation", Opened=true})
 
-local FarmTab = AutoSection:Tab({Title="Farming", Icon="dollar-sign"})
+-- Coin Farm tab
+local FarmTab = AutoSection:Tab({Title="Coin Farm", Icon="dollar-sign"})
 
--- Candy Collection (Coin Farm)
-local FarmCoinSub = FarmTab:Section({Title="Coin Farm", Opened=true})
-FarmCoinSub:Toggle({Title="Coin Farm (Smooth)", Desc="TweenService smooth movement to each coin (v1)", Flag="CoinFarmToggle",
-    Callback=function(v) FarmConfig.CoinEnabled = v; FarmConfig.CoinFarmV2 = false end})
-FarmCoinSub:Toggle({Title="Coin Farm (Instant)", Desc="firetouchinterest instant collection — fastest (v2)", Flag="CoinFarmV2Toggle",
-    Callback=function(v) FarmConfig.CoinFarmV2 = v; if v then FarmConfig.CoinEnabled = false end end})
-FarmCoinSub:Toggle({Title="Instant Teleport", Desc="Snap directly to each coin (smooth mode only)", Flag="CoinInstantTPToggle",
-    Callback=function(v) FarmConfig.CoinInstantTP = v end})
-FarmCoinSub:Slider({Title="Farm Speed", Desc="Studs/sec toward each coin (smooth mode only)", Flag="CoinFarmSpeed",
-    Value={Min=1, Max=200, Default=22},
-    Callback=function(v) FarmConfig.CoinSpeed = v end})
-FarmCoinSub:Space()
-FarmCoinSub:Button({Title="Collect All Now", Icon="zap", Desc="Instantly teleport to every coin on the map",
+local CF1Sub = FarmTab:Section({Title="Coin Farm 1 (Fly)", Opened=true})
+CF1Sub:Toggle({Title="Enable Coin Farm 1", Desc="Flies to the nearest coin with a tween", Flag="CF1Toggle",
+    Callback=function(v)
+        AF.CoinFarm.State = v
+        if v then cf1Start() else cf1Stop() end
+    end})
+CF1Sub:Slider({Title="Farm Speed", Desc="Studs per second (above 22.5 may kick)", Flag="CF1Speed",
+    Step=0.5, Value={Min=15, Max=25, Default=22.5},
+    Callback=function(v) AF.CoinFarm.Speed = v end})
+
+local CF2Sub = FarmTab:Section({Title="Coin Farm 2 (Safe TP)", Opened=true})
+CF2Sub:Toggle({Title="Enable Coin Farm 2", Desc="Waits on a platform under the map and grabs coins from below", Flag="CF2Toggle",
+    Callback=function(v)
+        AF.CoinFarm2.State = v
+        if v then task.spawn(cf2Run) end
+    end})
+
+local EventSub = FarmTab:Section({Title="Event Farm", Opened=true})
+local eventStatsPara = EventSub:Paragraph({Title="Session Progress", Desc=efStatsText()})
+task.spawn(function()
+    while eventStatsPara do
+        pcall(function() eventStatsPara:SetDesc(efStatsText()) end)
+        task.wait(0.5)
+    end
+end)
+EventSub:Toggle({Title="Enable Event Farm", Desc="Floats under event coins (Candy, BeachBall, SnowToken, Egg...)", Flag="EventFarmToggle",
+    Callback=function(v) task.spawn(efSetEnabled, v) end})
+EventSub:Dropdown({Title="Coin Types", Desc="Which coins to collect", Flag="EventCoinTypes",
+    Values={"Any","Candy","BeachBall","Coin","SnowToken","Egg"}, Value={"Any"}, Multi=true, AllowNone=true,
+    Callback=function(v)
+        if type(v) ~= "table" then v = {v} end
+        EF.CoinTypes = #v > 0 and v or {"Any"}
+    end})
+EventSub:Dropdown({Title="Teleport Mode", Desc="Under = below the coin, Normal = at the coin", Flag="EventTPMode",
+    Values={"Under","Normal"}, Value="Under",
+    Callback=function(v) EF.Mode = v end})
+EventSub:Slider({Title="Event Farm Speed", Desc="Studs per second (above 22 might kick)", Flag="EventSpeed",
+    Step=0.1, Value={Min=19, Max=26, Default=22.7},
+    Callback=function(v) EF.Speed = v end})
+EventSub:Toggle({Title="Kill All On Full Bag", Desc="Knife required", Flag="EventKillAll",
+    Callback=function(v) EF.KillAllOnFull = v end})
+EventSub:Toggle({Title="Reset On Full Bag", Flag="EventReset",
+    Callback=function(v) EF.ResetOnFullBag = v end})
+EventSub:Toggle({Title="Fling Murderer On Full Bag", Flag="EventFlingMurd",
+    Callback=function(v) EF.FlingMurdererOnFull = v end})
+
+local CoinSettings = FarmTab:Section({Title="Coin Settings", Opened=true})
+CoinSettings:Toggle({Title="Stats Overlay", Desc="Coins collected, total and coins per hour on screen", Flag="StatsOverlayToggle",
+    Callback=function(v) AF.StatsOverlay = v end})
+CoinSettings:Toggle({Title="Destroy Player Models", Flag="DestroyPlayersToggle",
+    Callback=function(v) AF.CoinFarm.DestroyPlayers = v end})
+CoinSettings:Toggle({Title="Destroy Map", Desc="Removes everything except the coins", Flag="DestroyMapToggle",
+    Callback=function(v) AF.CoinFarm.DestroyMap = v end})
+CoinSettings:Toggle({Title="Disable 3D Rendering", Desc="Black screen, lowers CPU usage", Flag="Disable3DToggle",
+    Callback=function(v) set3DRendering(not v) end})
+CoinSettings:Button({Title="Teleport Under Map", Desc="Go to the safe spot now", Icon="arrow-down",
+    Callback=function() task.spawn(teleportUnderMap) end})
+
+local BagFullSub = FarmTab:Section({Title="On Full Bag", Opened=true})
+BagFullSub:Toggle({Title="Kill Everyone (Murderer)", Flag="KillAtBagToggle",
+    Callback=function(v) AF.AutoFarm.KillAtFullBag = v end})
+BagFullSub:Toggle({Title="Fling Murderer", Flag="FlingAtBagToggle",
+    Callback=function(v) AF.AutoFarm.FlingMurdererAtFullBag = v end})
+BagFullSub:Toggle({Title="Teleport Under Map", Flag="TpUnderAtBagToggle",
+    Callback=function(v) AF.AutoFarm.TeleportUnderMap = v end})
+BagFullSub:Toggle({Title="Die", Desc="Reset your character", Flag="DieAtBagToggle",
+    Callback=function(v) AF.CoinFarm.DieAtFullBag = v end})
+
+local FarmXPSub = FarmTab:Section({Title="XP Farm", Opened=true})
+FarmXPSub:Toggle({Title="Enable XP Farm", Desc="Every 1.5s: teleports behind murderer and fires your tool", Flag="XPFarmToggle",
+    Callback=function(v) AF.XPFarm = v end})
+FarmXPSub:Toggle({Title="Anti AFK", Desc="Prevents kick on idle", Flag="AntiAFKToggle",
+    Callback=applyAntiAFK})
+
+-- Auto Farm tab
+local AutoFarmTab = AutoSection:Tab({Title="Auto Farm", Icon="repeat"})
+local RoundSub = AutoFarmTab:Section({Title="Round Start", Opened=true})
+RoundSub:Toggle({Title="Teleport To Lobby Spawn", Desc="When the round starts", Flag="AutoTPSpawnToggle",
+    Callback=function(v) AF.AutoFarm.TeleportSpawn = v end})
+RoundSub:Toggle({Title="Kill Everyone As Murderer", Flag="KillOnStartToggle",
+    Callback=function(v) AF.AutoFarm.KillEveryone = v end})
+RoundSub:Toggle({Title="Fling Murderer", Flag="FlingMurdOnStartToggle",
+    Callback=function(v) AF.AutoFarm.AutoFlingMurderer = v end})
+RoundSub:Toggle({Title="Fling Sheriff", Flag="FlingSheriOnStartToggle",
+    Callback=function(v) AF.AutoFarm.AutoFlingSheriff = v end})
+
+local ServerAutoSub = AutoFarmTab:Section({Title="Server & Progress", Opened=true})
+ServerAutoSub:Toggle({Title="Auto Prestige", Desc="Tries to prestige every 30 seconds", Flag="AutoPrestigeToggle",
+    Callback=function(v) AF.AutoFarm.AutoPrestige = v end})
+ServerAutoSub:Toggle({Title="Server Hop If Empty", Desc="Hop when players drop below the threshold", Flag="AutoHopEmptyToggle",
+    Callback=function(v) AF.AutoFarm.AutoServerHop = v end})
+ServerAutoSub:Slider({Title="Player Threshold", Flag="HopThresholdSlider",
+    Value={Min=1, Max=12, Default=2},
+    Callback=function(v) AF.AutoFarm.PlayersToServerHop = v end})
+
+-- Misc tab
+local MiscTab = AutoSection:Tab({Title="Misc", Icon="box"})
+local CrateSub = MiscTab:Section({Title="Auto Open Crates", Opened=true})
+CrateSub:Toggle({Title="Auto Open Crates", Desc="Opens the chosen box every 0.5s", Flag="AutoCratesToggle",
+    Callback=function(v) AF.AutoOpenCrates.State = v end})
+if #CRATES > 0 then
+    CrateSub:Dropdown({Title="Choose Box", Flag="CrateDropdown",
+        Values=CRATES, Value=AF.AutoOpenCrates.Crate,
+        Callback=selectCrate})
+end
+
+local WeaponSub = MiscTab:Section({Title="Skins", Opened=true})
+WeaponSub:Toggle({Title="Shuffle Weapons", Desc="Rapidly equips random weapons you own", Flag="ShuffleWeaponsToggle",
+    Callback=function(v) AF.ShuffleWeapons = v end})
+
+local InvSub = MiscTab:Section({Title="Inventory Value", Opened=true})
+local invPara = InvSub:Paragraph({Title="Your Inventory", Desc="Press Analyze."})
+local invBusy = false
+InvSub:Button({Title="Analyze Inventory", Icon="bar-chart",
     Callback=function()
+        if invBusy then return end
+        invBusy = true
+        pcall(function() invPara:SetDesc("Collecting data...") end)
         task.spawn(function()
-            local lc  = LocalPlayer.Character
-            local hrp = lc and lc:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
-            local all = getCoins()
-            for _, c in ipairs(all) do
-                if c and c.Parent then
-                    pcall(function() hrp.CFrame = CFrame.new(c.Position + Vector3.new(0, 3, 0)) end)
-                    task.wait(0.05)
-                end
-            end
-            WindUI:Notify({Title="Done!", Content="Collected " .. #all .. " candy coins!", Icon="check-circle", Duration=3})
+            local ok, report = pcall(inventoryReport, LocalPlayer.Name)
+            pcall(function() invPara:SetDesc(ok and report or "Failed to fetch inventory.") end)
+            invBusy = false
         end)
     end})
-FarmCoinSub:Button({Title="Check Coin Count", Icon="search", Desc="See how many coins are on the map",
+InvSub:Button({Title="Copy Report", Icon="copy",
     Callback=function()
-        local count = #getCoins()
-        WindUI:Notify({Title=count .. "  Candies Found",
-            Content=count > 0 and "Happy haunting!" or "No candy yet — wait for a round.",
-            Icon=count > 0 and "check-circle" or "info", Duration=3})
+        task.spawn(function()
+            local ok, report = pcall(inventoryReport, LocalPlayer.Name)
+            if ok and setclipboard then
+                setclipboard(report)
+                notify("Copied", "Inventory report copied to clipboard.", "check-circle", 3)
+            end
+        end)
     end})
-FarmCoinSub:Button({Title="Teleport to Safe Spot", Icon="map-pin", Desc="Teleport under the map to safe spot (-106, 87.5, 2)",
-    Callback=function() task.spawn(teleportToSafeSpot) end})
-FarmCoinSub:Space()
-FarmCoinSub:Toggle({Title="Auto-Fling Murderer When Done",
-    Desc="Flings murderer when bag is full or no coins remain", Flag="AutoFlingDoneToggle",
-    Callback=function(v) FarmConfig.AutoFlingOnDone = v end})
-FarmCoinSub:Space()
-FarmCoinSub:Button({Title="Check Bag", Icon="package", Desc="See if your candy bag is full",
-    Callback=function()
-        local full = isBagFull()
-        WindUI:Notify({Title=full and " Bag Full!" or "Bag Not Full",
-            Content=full and "Your candy bag is bursting!" or "Still room for more candy.",
-            Icon=full and "check-circle" or "info", Duration=3})
-    end})
-FarmCoinSub:Space()
 
--- Bag Full Actions
-local BagFullSub = FarmTab:Section({Title="Bag Full Actions", Opened=true})
-BagFullSub:Toggle({Title="Kill All at Bag Full", Desc="Kill everyone when bag is full (Murderer only — anchor method)", Flag="KillAtBagToggle",
-    Callback=function(v) FarmConfig.KillAtBag = v end})
-BagFullSub:Toggle({Title="Fling at Bag Full", Desc="Fling the murderer when bag is full", Flag="FlingAtBagToggle",
-    Callback=function(v) FarmConfig.FlingAtBag = v end})
-BagFullSub:Toggle({Title="Teleport Under Map at Bag Full", Desc="Teleport to safe spot when bag is full", Flag="TpUnderAtBagToggle",
-    Callback=function(v) FarmConfig.TeleportUnderAtBag = v end})
-BagFullSub:Toggle({Title="Die at Bag Full", Desc="Kill yourself when bag is full to reset round", Flag="DieAtBagToggle",
-    Callback=function(v) FarmConfig.DieAtBag = v end})
-BagFullSub:Space()
-
--- XP Farm
-local FarmXPSub = FarmTab:Section({Title="XP Farm", Opened=true})
-FarmXPSub:Toggle({Title="Enable XP Farm",
-    Desc="Every 1.5s: teleports behind murderer and fires your tool", Flag="XPFarmToggle",
-    Callback=function(v) FarmConfig.XPFarmEnabled = v end})
-FarmXPSub:Space()
-
--- Anti AFK
-local FarmAFKSub = FarmTab:Section({Title="Anti AFK", Opened=true})
-FarmAFKSub:Toggle({Title="Enable Anti AFK", Desc="Prevents kick on idle", Flag="AntiAFKToggle",
-    Callback=function(v) FarmConfig.AntiAFKEnabled = v; applyAntiAFK(v) end})
-FarmAFKSub:Space()
-
--- ── Dark Rituals Tab ────────────────────────────────────────
-local RitualsTab = AutoSection:Tab({Title="Extras", Icon="zap"})
-
--- Round Start Actions
-local RoundStartSub = RitualsTab:Section({Title="Round Start", Opened=true})
-RoundStartSub:Toggle({Title="Kill Everyone on Start", Desc="Kill all players at round start (Murderer — anchor method)", Flag="KillOnStartToggle",
-    Callback=function(v) FarmConfig.KillOnStart = v end})
-RoundStartSub:Toggle({Title="Fling Murderer on Start", Desc="Auto-fling the murderer at round start", Flag="FlingMurdOnStartToggle",
-    Callback=function(v) FarmConfig.FlingMurdOnStart = v end})
-RoundStartSub:Toggle({Title="Fling Sheriff on Start", Desc="Auto-fling the sheriff at round start", Flag="FlingSheriOnStartToggle",
-    Callback=function(v) FarmConfig.FlingSheriOnStart = v end})
-RoundStartSub:Space()
-
--- Cursed Automation
-local CursedAutoSub = RitualsTab:Section({Title="Automation", Opened=true})
-CursedAutoSub:Toggle({Title="Auto Prestige", Desc="Automatically prestige every 30 seconds", Flag="AutoPrestigeToggle",
-    Callback=function(v) FarmConfig.AutoPrestige = v end})
-CursedAutoSub:Space()
-CursedAutoSub:Toggle({Title="Auto Open Crates", Desc="Automatically open crates every second", Flag="AutoCratesToggle",
-    Callback=function(v) FarmConfig.AutoOpenCrates = v end})
-CursedAutoSub:Dropdown({Title="Crate Name", Desc="Which crate to open", Flag="CrateNameBox",
-    Values={"Classic","Vintage","Knife","Gun","Pet","Rainbow"},
-    Callback=function(v) FarmConfig.CrateName = v end})
-CursedAutoSub:Dropdown({Title="Crate Type", Desc="Crate type", Flag="CrateTypeBox",
-    Values={"Normal","Premium","Special"},
-    Callback=function(v) FarmConfig.CrateType = v end})
-CursedAutoSub:Space()
-CursedAutoSub:Toggle({Title="Auto Server Hop When Empty", Desc="Server hop when player count drops below threshold", Flag="AutoHopEmptyToggle",
-    Callback=function(v) FarmConfig.AutoServerHopEmpty = v end})
-CursedAutoSub:Slider({Title="Player Threshold", Desc="Hop when players fall to this count", Flag="HopThresholdSlider",
-    Value={Min=1, Max=20, Default=2},
-    Callback=function(v) FarmConfig.ServerHopThreshold = v end})
-CursedAutoSub:Space()
-
--- Phantom Chaos
-local PhantomSub = RitualsTab:Section({Title="Misc", Opened=true})
-PhantomSub:Toggle({Title="Emote Spam", Desc="Spam a selected emote continuously", Flag="EmoteSpamToggle",
-    Callback=function(v) FarmConfig.EmoteSpam = v end})
-PhantomSub:Dropdown({Title="Emote to Spam", Desc="Pick your spooky emote", Flag="EmoteSpamDropdown",
-    Values={"sit","zombie","ninja","zen","floss","dab"},
-    Callback=function(v) FarmConfig.SelectedEmote = v end})
-PhantomSub:Slider({Title="Emote Speed", Desc="Emotes per second", Flag="EmoteSpeedSlider",
-    Value={Min=1, Max=20, Default=1},
-    Callback=function(v) FarmConfig.EmoteSpamSpeed = v end})
-PhantomSub:Space()
-PhantomSub:Toggle({Title="Shuffle Weapons", Desc="Randomly equip a different weapon every 5 seconds", Flag="ShuffleWeaponsToggle",
-    Callback=function(v) FarmConfig.ShuffleWeapons = v end})
-PhantomSub:Space()
-PhantomSub:Button({Title="Destroy Map (Keep Coins)", Icon="trash", Desc="Destroy all map parts except the CoinContainer",
-    Callback=function() task.spawn(destroyMapExceptCoins) end})
-PhantomSub:Button({Title="Destroy Other Players", Icon="user-x", Desc="Remove other players from workspace (visual)",
-    Callback=function() task.spawn(destroyOtherPlayers) end})
-PhantomSub:Space()
-
--- Stats
-local StatsSub = RitualsTab:Section({Title="Stats", Opened=true})
-StatsSub:Button({Title="Check Coins/hr", Icon="bar-chart", Desc="See your current farm rate",
-    Callback=function()
-        local elapsed = tick() - _farmStartTime
-        local perHr = elapsed > 0 and math.floor(_coinsCollected / elapsed * 3600) or 0
-        WindUI:Notify({Title="" .. _coinsCollected .. " candies collected",
-            Content="Rate: " .. perHr .. " candies/hr",
-            Icon="bar-chart", Duration=5})
-    end})
+local ToolsSub = MiscTab:Section({Title="Tools", Opened=true})
+ToolsSub:Button({Title="Fly GUI", Desc="Loads Fly GUI V3", Icon="plane", Callback=openFlyGui})
 
 -- ── BUTTONS TAB (Vision Hub exact — standalone) ────────────
 local ButtonsTab = Window:Tab({Title="Buttons", Icon="square-mouse-pointer"})
@@ -2502,7 +3145,7 @@ SettConfig:Button({Title="Load Config", Desc="Loads previously saved settings", 
     end})
 
 local SettTheme = SettTab:Section({Title="Theme", Opened=true})
-SettTheme:Keybind({Title="Toggle Keybind", Desc="Open/close the UI", Value="G",
+SettTheme:Keybind({Title="Toggle UI", Desc="Open / close the menu", Value="RightShift",
     Callback=function(v)
         pcall(function() Window:SetToggleKey(Enum.KeyCode[v]) end)
     end})
@@ -2512,47 +3155,45 @@ SettTheme:Toggle({Title="Transparency", Desc="Semi-transparent interface",
 
 SettTab:Space()
 
-local SettKeybinds = SettTab:Section({Title="Keybinds", Opened=true})
+-- Action keybinds: all unbound until the player picks a key
+local SettKeybinds = SettTab:Section({Title="Keybinds", Desc="All unbound by default. Click one and press a key to set it.", Opened=true})
 local Keybinds = {
     GrabGun    = "None",
-    KillAll    = "K",
-    ThrowKnife = "Q",
-    ShootMurd  = "E",
-    TpShoot    = "None",
+    KillAll    = "None",
+    ThrowKnife = "None",
+    ShootMurd  = "None",
+    SilentAim  = "None",
     FlingMurd  = "None",
 }
-SettKeybinds:Keybind({Title="Grab Gun",        Desc="Pick up gun from map",         Value=Keybinds.GrabGun,    Callback=function(v) Keybinds.GrabGun=v    end})
-SettKeybinds:Keybind({Title="Kill All",         Desc="Kill all players",              Value=Keybinds.KillAll,    Callback=function(v) Keybinds.KillAll=v    end})
-SettKeybinds:Keybind({Title="Throw Knife",      Desc="Throw knife at nearest player", Value=Keybinds.ThrowKnife, Callback=function(v) Keybinds.ThrowKnife=v end})
-SettKeybinds:Keybind({Title="Silent Shoot",     Desc="Shoot murderer from position",  Value=Keybinds.ShootMurd,  Callback=function(v) Keybinds.ShootMurd=v  end})
-SettKeybinds:Keybind({Title="TP & Shoot",       Desc="Teleport + shoot murderer",     Value=Keybinds.TpShoot,    Callback=function(v) Keybinds.TpShoot=v    end})
-SettKeybinds:Keybind({Title="Fling Murderer",   Desc="Fling the murderer",            Value=Keybinds.FlingMurd,  Callback=function(v) Keybinds.FlingMurd=v  end})
-
-SettTab:Space()
-
--- ── KEYBIND HANDLERS ───────────────────────────────────────
-AddConnection(UserInputService.InputBegan:Connect(function(inp, gpe)
-    if gpe then return end
-    local keyName = tostring(inp.KeyCode):match("Enum.KeyCode.(.+)")
-    if not keyName then return end
-
-    if keyName == Keybinds.KillAll and Keybinds.KillAll ~= "None" then
-        local char = Modules.Character; local hum = Modules.Humanoid
-        if char and hum and hum.Health > 0 then
-            local knife = char:FindFirstChild("Knife") or (Modules.Backpack and Modules.Backpack:FindFirstChild("Knife"))
-            if knife then pcall(Modules.KillAll) end
-        end
-    elseif keyName == Keybinds.ThrowKnife and Keybinds.ThrowKnife ~= "None" then
-        pcall(Modules.ExecuteThrowAtNearest)
-    elseif keyName == Keybinds.ShootMurd and Keybinds.ShootMurd ~= "None" then
-        pcall(function() Modules.ShootMurdererOnce() end)
-    elseif keyName == Keybinds.TpShoot and Keybinds.TpShoot ~= "None" then
-        pcall(function() Modules.ShootMurdererOnce() end)
-    elseif keyName == Keybinds.FlingMurd and Keybinds.FlingMurd ~= "None" then
+local KeybindActions = {
+    GrabGun    = function() Modules.GrabGun() end,
+    KillAll    = function() killEveryone() end,
+    ThrowKnife = function() Modules.ExecuteThrowAtNearest() end,
+    ShootMurd  = function() Modules.ShootMurdererOnce() end,
+    SilentAim  = function() Modules.ShootMurdererSilent() end,
+    FlingMurd  = function()
         local m = Modules.FindMurderer()
-        if m and m.Character then task.spawn(function() SkidFling(m) end) end
-    elseif keyName == Keybinds.GrabGun and Keybinds.GrabGun ~= "None" then
-        pcall(Modules.GrabGun)
+        if m and m ~= LocalPlayer then miniFling({m.Name}) end
+    end,
+}
+local function bindRow(id, title, desc)
+    SettKeybinds:Keybind({Title=title, Desc=desc, Value="None", Flag="Key_"..id,
+        Callback=function(v) Keybinds[id] = v end})
+end
+bindRow("GrabGun",    "Pick Up Gun",     "Grab the dropped gun")
+bindRow("KillAll",    "Kill Everyone",   "Murderer only")
+bindRow("ThrowKnife", "Throw Knife",     "At the nearest player")
+bindRow("ShootMurd",  "Shoot Murderer",  "Sheriff only")
+bindRow("SilentAim",  "Toggle Silent Aim", "Redirect manual shots")
+bindRow("FlingMurd",  "Fling Murderer",  "Fling the murderer")
+
+AddConnection(UserInputService.InputBegan:Connect(function(inp, gpe)
+    if gpe or inp.UserInputType ~= Enum.UserInputType.Keyboard then return end
+    local keyName = inp.KeyCode.Name
+    for id, key in pairs(Keybinds) do
+        if key ~= "None" and key ~= "" and key == keyName then
+            task.spawn(function() pcall(KeybindActions[id]) end)
+        end
     end
 end))
 
@@ -2565,7 +3206,7 @@ BorderSub:Colorpicker({Title="Border Color", Value=Color3.fromRGB(255,115,0),
         if _borderStroke then _borderStroke.Color=v end
         if getgenv().mm2PillStroke then getgenv().mm2PillStroke.Color=v end
     end})
-BorderSub:Slider({Title="Border Thickness", Value={Min=1,Max=12,Default=5}, Step=1,
+BorderSub:Slider({Title="Border Thickness", Value={Min=1,Max=12,Default=3}, Step=1,
     Callback=function(v)
         borderThickness=v
         if _borderStroke then _borderStroke.Thickness=v end
@@ -2609,26 +3250,6 @@ Window:SelectTab(1)
 -- ============================================================
 Window:SetToggleKey(Enum.KeyCode.RightShift)
 
--- ============================================================
--- HOTKEYS (configurable via Settings > Keybinds)
--- ============================================================
-local function keyMatches(inp, bindName)
-    local v = Keybinds[bindName]
-    if not v or v == "None" or v == "" then return false end
-    local ok, kc = pcall(function() return Enum.KeyCode[v] end)
-    return ok and kc and inp.KeyCode == kc
-end
-
-AddConnection(UserInputService.InputBegan:Connect(function(inp, gameProcessed)
-    if gameProcessed then return end
-    if     keyMatches(inp, "GrabGun")    then task.spawn(Modules.GrabGun)
-    elseif keyMatches(inp, "KillAll")    then task.spawn(Modules.KillAll)
-    elseif keyMatches(inp, "ThrowKnife") then task.spawn(Modules.ExecuteThrowAtNearest)
-    elseif keyMatches(inp, "ShootMurd")  then task.spawn(Modules.ShootMurdererSilent)
-    elseif keyMatches(inp, "TpShoot")   then task.spawn(Modules.ShootMurdererOnce)
-    elseif keyMatches(inp, "FlingMurd")  then task.spawn(function() pcall(Modules.FlingMurderer) end)
-    end
-end))
 
 -- ============================================================
 -- AVATAR ICON INJECTION
@@ -2683,6 +3304,24 @@ task.spawn(function()
     _borderStroke.Color           = borderColor
     _borderStroke.Transparency    = 0
     _borderStroke.Parent          = target
+
+    local oldPumpkin = target:FindFirstChild("GhostPumpkin")
+    if oldPumpkin then oldPumpkin:Destroy() end
+    local pumpkin = Instance.new("TextLabel")
+    pumpkin.Name                   = "GhostPumpkin"
+    pumpkin.Text                   = "\u{1F383}"
+    pumpkin.BackgroundTransparency = 1
+    pumpkin.TextScaled             = true
+    pumpkin.Size                   = UDim2.fromOffset(42, 42)
+    pumpkin.AnchorPoint            = Vector2.new(0.5, 0.5)
+    pumpkin.Position               = UDim2.new(1, 2, 0, 4)
+    pumpkin.Rotation               = -12
+    pumpkin.ZIndex                 = 500
+    pumpkin.Parent                 = target
+    TweenService:Create(pumpkin, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+        Rotation = 12,
+        Position = UDim2.new(1, 2, 0, -2),
+    }):Play()
 end)
 
 -- ============================================================
