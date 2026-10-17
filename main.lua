@@ -1,8 +1,8 @@
 -- ============================================================
 -- ZOVLANE HUB v5.0 - Halloween Edition
--- Repo:     https://github.com/zovlane/GhostHub
+-- Repo:     https://github.com/zovlane/ZovlaneHub
 -- WindUI:   https://github.com/zovlane/WindUI (our fork — loads dist/main.lua)
--- Load:     loadstring(game:HttpGet("https://raw.githubusercontent.com/zovlane/GhostHub/main/main.lua"))()
+-- Load:     loadstring(game:HttpGet("https://raw.githubusercontent.com/zovlane/ZovlaneHub/main/main.lua"))()
 -- ============================================================
 local TweenService      = game:GetService("TweenService")
 local Players           = game:GetService("Players")
@@ -153,7 +153,7 @@ Modules.Config = {
     SilentThrow        = false,
     AutoShootMurderer  = false,
     AutoQueue          = true,
-    QueueUrl           = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/zovlane/Files/refs/heads/main/officialscript.lua",true))()',
+    QueueUrl           = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/zovlane/ZovlaneHub/main/main.lua",true))()',
     NotifyMurderer     = false,
     NotifySheriff      = false,
     NotifyGunDropped   = false,
