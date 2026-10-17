@@ -1,5 +1,5 @@
 -- ============================================================
---  GHOST HUB v5.0 — Halloween Edition
+-- ZOVLANE HUB v5.0 - Halloween Edition
 -- Repo:     https://github.com/zovlane/GhostHub
 -- WindUI:   https://github.com/zovlane/WindUI (our fork — loads dist/main.lua)
 -- Load:     loadstring(game:HttpGet("https://raw.githubusercontent.com/zovlane/GhostHub/main/main.lua"))()
@@ -1473,9 +1473,9 @@ local function fittedWindowSize()
 end
 
 local Window = WindUI:CreateWindow({
-    Title   = "Ghost HUB",
+    Title   = "Zovlane Hub",
     Author  = "Halloween Edition · v5.0",
-    Folder  = "GhostHubV5",
+    Folder  = "ZovlaneHub",
     Icon    = _avatarIcon,
     Size    = fittedWindowSize(),
     MinSize = Vector2.new(300, 240),
@@ -1487,7 +1487,7 @@ local Window = WindUI:CreateWindow({
     User    = { Enabled=false, Anonymous=false },
     Topbar  = { Height=46, ButtonsType="Mac" },
     OpenButton = {
-        Title           = "Ghost HUB",
+        Title           = "Zovlane Hub",
         Icon            = "ghost",
         Enabled         = true,
         OnlyMobile      = true,
@@ -2578,8 +2578,8 @@ do
 -- ── HOME ────────────────────────────────────────────────────
 local HomeTab = Window:Tab({Title="Home", Icon="house"})
 HomeTab:Paragraph({
-    Title = "Welcome to Ghost HUB",
-    Desc  = "Halloween Edition v5.0. RightShift opens/closes the menu on PC; on mobile use the Ghost HUB button.",
+    Title = "Welcome to Zovlane Hub",
+    Desc  = "Halloween Edition v5.0. RightShift opens/closes the menu on PC; on mobile use the Zovlane Hub button.",
 })
 HomeTab:Space()
 HomeTab:Paragraph({
@@ -2607,24 +2607,44 @@ HomeTab:Paragraph({Title="Found a bug?", Desc="Re-execute the script or rejoin."
 
 end
 do
--- ── COMBAT SECTION ─────────────────────────────────────────
-local CombatSection = Window:Section({Title="Combat", Opened=true})
+-- ── ROLES SECTION ──────────────────────────────────────────
+local CombatSection = Window:Section({Title="Roles", Opened=true})
 
--- Combat Tab
-local CombatTab = CombatSection:Tab({Title="Combat", Icon="crosshair"})
-
-local CombatGeneral = CombatTab:Section({Title="General", Opened=true})
-CombatGeneral:Button({Title="Pick Up Gun", Desc="Walks to the dropped gun, grabs it and returns",
+-- Innocent: survive, grab the gun, deal with the murderer
+local InnocentTab = CombatSection:Tab({Title="Innocent", Icon="shield"})
+local InnoGun = InnocentTab:Section({Title="Gun", Opened=true})
+InnoGun:Button({Title="Pick Up Gun", Desc="Walks to the dropped gun, grabs it and returns",
     Icon="hand", Callback=Modules.GrabGun})
-CombatGeneral:Toggle({Title="Auto Pick Up Gun", Desc="Grab the gun as soon as it drops", Flag="AutoGrabGunToggle",
+InnoGun:Toggle({Title="Auto Pick Up Gun", Desc="Grab the gun as soon as it drops", Flag="AutoGrabGunToggle",
     Callback=Modules.ToggleAutoGrabGun})
-CombatGeneral:Space()
-CombatGeneral:Toggle({Title="God Mode", Desc="Grants extra lives", Flag="GodModeToggle",
+local InnoSurvive = InnocentTab:Section({Title="Survive", Opened=true})
+InnoSurvive:Toggle({Title="God Mode", Desc="Grants extra lives", Flag="GodModeToggle",
     Callback=Modules.EnableGodMode})
-CombatGeneral:Toggle({Title="Anti-Fling", Desc="Prevents players from flinging you", Flag="AntiFlingToggle",
+InnoSurvive:Toggle({Title="Anti-Fling", Desc="Prevents players from flinging you", Flag="AntiFlingToggle",
     Callback=Modules.ToggleAntiFling})
+InnoSurvive:Button({Title="Who Is The Murderer?", Icon="skull",
+    Callback=function() notifyRoleName("Murderer") end})
+InnoSurvive:Button({Title="Fling Murderer", Icon="wind",
+    Callback=function()
+        local m = Modules.FindMurderer()
+        if m and m ~= LocalPlayer then task.spawn(miniFling, {m.Name}) end
+    end})
 
-local CombatMurdS = CombatTab:Section({Title="Murderer", Opened=true})
+-- Sheriff: shoot the murderer
+local SheriffTab = CombatSection:Tab({Title="Sheriff", Icon="crosshair"})
+local CombatSherS = SheriffTab:Section({Title="Shooting", Opened=true})
+CombatSherS:Toggle({Title="Auto Shoot Murderer", Desc="Shoots the murderer whenever you have line of sight", Flag="AutoShootMurderer",
+    Callback=Modules.ToggleAutoShootMurderer})
+CombatSherS:Button({Title="Shoot Murderer", Desc="Fire one predicted shot at the murderer",
+    Icon="crosshair", Callback=Modules.ShootMurdererOnce})
+CombatSherS:Button({Title="Toggle Silent Aim", Desc="Redirects your manual shots to the murderer",
+    Icon="crosshair", Callback=Modules.ShootMurdererSilent})
+CombatSherS:Button({Title="Who Is The Murderer?", Icon="skull",
+    Callback=function() notifyRoleName("Murderer") end})
+
+-- Murderer: kill everyone
+local MurdererTab = CombatSection:Tab({Title="Murderer", Icon="skull"})
+local CombatMurdS = MurdererTab:Section({Title="Killing", Opened=true})
 CombatMurdS:Button({Title="Kill Everyone", Desc="Pulls everyone in front of you and slashes",
     Icon="skull", Callback=function()
         if Modules.FindMurderer() ~= LocalPlayer then
@@ -2636,27 +2656,29 @@ CombatMurdS:Button({Title="Bring All Players", Desc="Teleport every player in fr
     Icon="users", Callback=bringAllPlayers})
 CombatMurdS:Toggle({Title="Auto Kill All", Desc="Keep killing everyone while you have the knife", Flag="AutoKillToggle",
     Callback=Modules.ToggleAutoKillAll})
-CombatMurdS:Space()
 CombatMurdS:Toggle({Title="Knife Aura", Desc="Kill players within a radius", Flag="KillAuraToggle",
     Callback=Modules.KillAura})
 CombatMurdS:Slider({Title="Aura Radius", Desc="Detection radius", Flag="AuraRadiusSlider",
     Value={Min=5,Max=100,Default=10}, Callback=function(v) Modules.Config.AuraRadius=v end})
-CombatMurdS:Space()
-CombatMurdS:Toggle({Title="Auto Knife Throw", Desc="Throws knife at nearest automatically", Flag="ThrowKnifeFlag",
+local MurdThrow = MurdererTab:Section({Title="Knife Throw", Opened=true})
+MurdThrow:Toggle({Title="Auto Knife Throw", Desc="Throws knife at nearest automatically", Flag="ThrowKnifeFlag",
     Callback=Modules.ToggleSilentThrow})
-CombatMurdS:Button({Title="Throw Knife", Desc="Throw knife at nearest player",
+MurdThrow:Button({Title="Throw Knife", Desc="Throw knife at nearest player",
     Icon="crosshair", Callback=Modules.ExecuteThrowAtNearest})
+local MurdSheriff = MurdererTab:Section({Title="Deal With The Sheriff", Opened=true})
+MurdSheriff:Button({Title="Who Is The Sheriff?", Icon="shield",
+    Callback=function() notifyRoleName("Sheriff") end})
+MurdSheriff:Button({Title="Fling Sheriff", Icon="wind",
+    Callback=function()
+        local s = Modules.FindSheriff()
+        if s and s ~= LocalPlayer then task.spawn(miniFling, {s.Name}) end
+    end})
 
-local CombatSherS = CombatTab:Section({Title="Sheriff", Opened=true})
-CombatSherS:Toggle({Title="Auto Shoot Murderer", Desc="Shoots the murderer whenever you have line of sight", Flag="AutoShootMurderer",
-    Callback=Modules.ToggleAutoShootMurderer})
-CombatSherS:Button({Title="Shoot Murderer", Desc="Fire one predicted shot at the murderer",
-    Icon="crosshair", Callback=Modules.ShootMurdererOnce})
-CombatSherS:Button({Title="Toggle Silent Aim", Desc="Redirects your manual shots to the murderer",
-    Icon="crosshair", Callback=Modules.ShootMurdererSilent})
+-- ── VISUALS & TROLL SECTION ─────────────────────────────────
+local ExtrasSection = Window:Section({Title="Visuals & Troll", Opened=true})
 
 -- Visuals Tab
-local VisualsTab = CombatSection:Tab({Title="Visuals", Icon="eye"})
+local VisualsTab = ExtrasSection:Tab({Title="Visuals", Icon="eye"})
 
 -- ESP system (Vision Hub exact — Highlight + BillboardGui)
 local ESP_Folder = CoreGui:FindFirstChild("VisionESP")
@@ -2823,7 +2845,7 @@ VisualsNotify:Button({Title="Murderer Username", Icon="skull", Callback=function
 VisualsNotify:Button({Title="Sheriff Username", Icon="shield", Callback=function() notifyRoleName("Sheriff") end})
 
 -- Troll Tab
-local TrollTab = CombatSection:Tab({Title="Troll", Icon="zap"})
+local TrollTab = ExtrasSection:Tab({Title="Troll", Icon="zap"})
 
 -- ── CHAT (first) ───────────────────────────────────────────
 local TrollChat = TrollTab:Section({Title="Chat", Opened=true})
@@ -3838,7 +3860,7 @@ task.spawn(function()
     task.spawn(function()
         task.wait(1)
         for _, obj in ipairs(Window.UIElements.Main:GetDescendants()) do
-            if obj:IsA("TextLabel") and obj.Text == "Ghost HUB" then
+            if obj:IsA("TextLabel") and obj.Text == "Zovlane Hub" then
                 local g = obj:FindFirstChild("LibraryGradient")
                 if g then
                     g.Offset = Vector2.new(-0.35, 0)
