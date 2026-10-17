@@ -2372,11 +2372,11 @@ CursedAutoSub:Toggle({Title="🏆 Auto Prestige", Desc="Automatically prestige e
 CursedAutoSub:Space()
 CursedAutoSub:Toggle({Title="📦 Auto Open Crates", Desc="Automatically open crates every second", Flag="AutoCratesToggle",
     Callback=function(v) FarmConfig.AutoOpenCrates = v end})
-CursedAutoSub:TextBox({Title="Crate Name", Desc="Name of the crate to open", Flag="CrateNameBox",
-    Value="Classic",
+CursedAutoSub:Dropdown({Title="Crate Name", Desc="Which crate to open", Flag="CrateNameBox",
+    Values={"Classic","Vintage","Knife","Gun","Pet","Rainbow"},
     Callback=function(v) FarmConfig.CrateName = v end})
-CursedAutoSub:TextBox({Title="Crate Type", Desc="Type of crate (Normal, etc)", Flag="CrateTypeBox",
-    Value="Normal",
+CursedAutoSub:Dropdown({Title="Crate Type", Desc="Crate type", Flag="CrateTypeBox",
+    Values={"Normal","Premium","Special"},
     Callback=function(v) FarmConfig.CrateType = v end})
 CursedAutoSub:Space()
 CursedAutoSub:Toggle({Title="🌐 Auto Server Hop When Empty", Desc="Server hop when player count drops below threshold", Flag="AutoHopEmptyToggle",
